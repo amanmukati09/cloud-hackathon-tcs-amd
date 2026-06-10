@@ -177,6 +177,58 @@ async def get_chat_history(
             temp_user = ""
     return chat_format
 
+# --- PROTECTED ADMIN ROUTES ---
+
+@app.get("/admin/metrics")
+async def get_admin_metrics(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetch global platform metrics."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied: Root Admin required.")
+    
+    return {
+        "users": db.query(User).count(),
+        "incidents": db.query(Incident).count(),
+        "chats": db.query(ChatSession).count()
+    }
+
+@app.get("/admin/users")
+async def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetch user directory with their telemetry counts."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied: Root Admin required.")
+    
+    users = db.query(User).all()
+    result = []
+    for u in users:
+        inc_count = db.query(Incident).filter(Incident.user_id == u.id).count()
+        chat_count = db.query(ChatSession).filter(ChatSession.user_id == u.id).count()
+        result.append({
+            "User ID": u.id,
+            "Full Name": u.full_name,
+            "Email": u.email,
+            "Role": "🛡️ ROOT" if u.is_admin else "👤 User",
+            "Incidents Logged": inc_count,
+            "AI Chats": chat_count,
+            "Joined Date": u.created_at.strftime("%Y-%m-%d")
+        })
+    return result
+
+@app.delete("/admin/users/{target_id}")
+async def delete_user(target_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete a user and cascade delete their incidents/chats."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied: Root Admin required.")
+    if current_user.id == target_id:
+        raise HTTPException(status_code=400, detail="Safety Protocol: You cannot delete your own Root account.")
+        
+    target = db.query(User).filter(User.id == target_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+        
+    db.delete(target)
+    db.commit()
+    return {"status": "success", "message": f"User {target_id} purged."}
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

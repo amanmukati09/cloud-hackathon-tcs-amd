@@ -61,14 +61,15 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
         new_user = User(
             email=user_data.email,
             hashed_password=hashed_pw,
-            full_name=user_data.full_name
+            full_name=user_data.full_name,
+            is_admin=False
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
 
-        access_token = create_access_token(data={"sub": str(new_user.id)})
-        return {"access_token": access_token, "token_type": "bearer", "user_id": new_user.id}
+        access_token = create_access_token(data={"sub": str(new_user.id), "is_admin": new_user.is_admin})
+        return {"access_token": access_token, "token_type": "bearer", "user_id": new_user.id, "is_admin": new_user.is_admin}
         
     except OperationalError as e:
         db.rollback()
@@ -86,7 +87,7 @@ def login(user_data: UserLogin, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Incorrect email or password")
 
         access_token = create_access_token(data={"sub": str(user.id)})
-        return {"access_token": access_token, "token_type": "bearer", "user_id": user.id}
+        return {"access_token": access_token, "token_type": "bearer", "user_id": user.id, "is_admin": user.is_admin}
         
     except OperationalError as e:
         # Cleanly handles schema mismatches during login

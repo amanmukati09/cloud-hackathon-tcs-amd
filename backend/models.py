@@ -17,7 +17,6 @@ class User(Base):
     full_name = Column(String)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
     incidents = relationship("Incident", back_populates="owner")
     chat_sessions = relationship("ChatSession", back_populates="owner")
 
