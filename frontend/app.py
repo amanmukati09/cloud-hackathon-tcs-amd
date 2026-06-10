@@ -78,6 +78,8 @@ def send_chat_msg(message, session_id, history, token):
         history[-1]["content"] = f"❌ Connection Error: {str(e)}"
         yield message, history, session_id, gr.update()
 
+
+
 def api_login(email, password):
     if not email.strip() or not password.strip() or not is_valid_email(email):
         gr.Warning("⚠️ Invalid parameters.")
@@ -98,24 +100,52 @@ def api_login(email, password):
         gr.Warning(f"❌ Connection Error: {e}")
     return "", gr.update(visible=True), gr.update(visible=False), gr.update(value="👤 Profile"), gr.update(value=""), False, gr.update(visible=False), gr.update()
 
+def is_valid_email(email):
+    # Regex for a proper professional email: user@domain.com
+    # Use a standard Python string for the pattern
+    pattern = r"^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-.]*)[A-Za-z0-9_'+\-]@([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+    return re.match(pattern, email)
+
+def is_strong_password(password):
+    # 8+ chars, 1 Uppercase, 1 Number, 1 Special character
+    pattern = r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$"
+    return re.match(pattern, password)
+
 def api_register(email, password, name):
-    if not name.strip() or not is_valid_email(email) or len(password) < 6:
-        gr.Warning("⚠️ Criteria unfulfilled. Password must be 6+ characters.")
+    name, email = name.strip(), email.strip()
+    
+    # Granular Validation
+    if not name:
+        gr.Warning("⚠️ Please enter your full name.")
         return "", gr.update(visible=True), gr.update(visible=False), gr.update(value="👤 Profile"), gr.update(value=""), False, gr.update(visible=False), gr.update()
+    
+    if not is_valid_email(email):
+        gr.Warning("⚠️ Please enter a valid email address (e.g., name@example.com).")
+        return "", gr.update(visible=True), gr.update(visible=False), gr.update(value="👤 Profile"), gr.update(value=""), False, gr.update(visible=False), gr.update()
+    
+    if not is_strong_password(password):
+        gr.Warning("⚠️ Password must be 8+ chars, include a number, an uppercase letter, and a special character (@$!%*#?&).")
+        return "", gr.update(visible=True), gr.update(visible=False), gr.update(value="👤 Profile"), gr.update(value=""), False, gr.update(visible=False), gr.update()
+
+    # If all pass, try the request
     try:
         res = requests.post(f"{BACKEND_URL}/auth/register", json={"email": email, "password": password, "full_name": name})
         if res.status_code == 200:
             token = res.json().get("access_token")
-            html = f"<div class='profile-text'><b>User:</b> {name}<br><b>Email:</b> {email}</div>"
-            gr.Info("✅ Account setup complete!")
-            return token, gr.update(visible=False), gr.update(visible=True), gr.update(value=f"👤 {name[:10]}"), gr.update(value=html), False, gr.update(visible=False), gr.update(choices=[])
+            raw_name = name.split(' ')[0].capitalize()
+            html = f"<div class='profile-text'><b>User:</b> {name}<br><b>Email:</b> {email}<br><b>Session:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>"
+            gr.Info("✅ Registration Successful! Redirecting...")
+            return token, gr.update(visible=False), gr.update(visible=True), gr.update(value=f"👤 {raw_name[:10]}"), gr.update(value=html), False, gr.update(visible=False), gr.update(choices=get_chat_sessions(token))
         else:
-            # FIX: Reveal exact error if email is already taken!
             gr.Warning(f"❌ Registration Failed: {res.json().get('detail', 'Email might exist')}")
     except Exception as e: 
         gr.Warning(f"❌ Connection Error: {e}")
+        
     return "", gr.update(visible=True), gr.update(visible=False), gr.update(value="👤 Profile"), gr.update(value=""), False, gr.update(visible=False), gr.update()
 
+
+
+    
 def fetch_history(token):
     try:
         res = requests.get(f"{BACKEND_URL}/my-incidents", headers={"Authorization": f"Bearer {token}"})
@@ -166,7 +196,7 @@ with gr.Blocks(title="AegisAI") as demo:
             with gr.Column(scale=2):
                 with gr.Tab("Login"):
                     log_email, log_pass = gr.Textbox(label="Email"), gr.Textbox(label="Password", type="password", elem_id="log_pass_input")
-                    log_show_pass = gr.Checkbox(label="👁️ Show Password", elem_classes="show-pass-check")
+                    log_show_pass = gr.Checkbox(label="Password Visibility", elem_classes="show-pass-check")
                     login_btn = gr.Button("Login 🚀", variant="primary")
                 with gr.Tab("Register"):
                     reg_name, reg_email, reg_pass = gr.Textbox(label="Full Name"), gr.Textbox(label="Email"), gr.Textbox(label="Password", type="password", elem_id="reg_pass_input")
@@ -198,7 +228,7 @@ with gr.Blocks(title="AegisAI") as demo:
                     "[INFO] database pool active\n[CRITICAL] connection timeout\n[CRITICAL] query failed"
                 ], inputs=logs_input)
                 
-                gr.Markdown("<br>### 📊 Diagnostics Report")
+                gr.Markdown("<br>\n\n### 📊 Diagnostics Report")
                 with gr.Row(elem_classes="card-row"):
                     with gr.Column(elem_classes="result-card anomaly-card"):
                         gr.Markdown("### 🔴 ANOMALY DETECTED")
@@ -231,11 +261,18 @@ with gr.Blocks(title="AegisAI") as demo:
     # --- WIRING ---
     log_show_pass.change(fn=None, inputs=[log_show_pass], js="(s) => { const el = document.querySelector('#log_pass_input input'); if(el) el.type = s ? 'text' : 'password'; }")
     reg_show_pass.change(fn=None, inputs=[reg_show_pass], js="(s) => { const el = document.querySelector('#reg_pass_input input'); if(el) el.type = s ? 'text' : 'password'; }")
+
+    
     nav_profile_btn.click(fn=lambda s: (not s, gr.update(visible=not s)), inputs=[dropdown_visible], outputs=[dropdown_visible, profile_panel], queue=False)
     clear_btn.click(fn=lambda: ("", "Waiting...", "Waiting...", "Waiting..."), outputs=[logs_input, anomaly_out, rc_out, remed_out], queue=False)
 
+
+    
     login_btn.click(fn=api_login, inputs=[log_email, log_pass], outputs=[session_token, auth_view, app_view, nav_profile_btn, profile_info, dropdown_visible, profile_panel, chat_session_dropdown]).then(fn=fetch_history, inputs=[session_token], outputs=[history_table])
+    
     register_btn.click(fn=api_register, inputs=[reg_email, reg_pass, reg_name], outputs=[session_token, auth_view, app_view, nav_profile_btn, profile_info, dropdown_visible, profile_panel, chat_session_dropdown]).then(fn=fetch_history, inputs=[session_token], outputs=[history_table])
+
+    
     logout_btn.click(fn=logout, outputs=[session_token, auth_view, app_view, nav_profile_btn, profile_info, dropdown_visible, profile_panel], queue=False)
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input, session_token], outputs=[anomaly_out, rc_out, remed_out, history_table])
@@ -249,4 +286,4 @@ with gr.Blocks(title="AegisAI") as demo:
     refresh_chat_btn.click(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
 
 if __name__ == "__main__":
-    demo.launch(share=True, server_name="0.0.0.0", server_port=7860, css=custom_css)
+    demo.queue().launch(share=True, server_name="0.0.0.0", server_port=7860, css=custom_css)
