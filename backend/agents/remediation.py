@@ -1,119 +1,197 @@
-import requests
 import json
-import time
 
 class RemediationAgent:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
-        self.ollama_url = ollama_url
-        self.model = "mistral"
+        pass
         
-        # Fallback plans
-        self.FALLBACK = {
-            "error_event": {
-                "immediate_actions": ["Review error logs", "Check dependencies", "Restart service"],
-                "automated_actions": [{"action": "Auto-restart", "risk_level": "LOW"}],
+        # DETAILED, ACTIONABLE remediation plans
+        self.REMEDIATION = {
+            ("error_event", "nginx"): {
+                "immediate_actions": [
+                    "Check Nginx error log: tail -f /var/log/nginx/error.log",
+                    "Verify upstream services are responding",
+                    "Check Nginx configuration: nginx -t",
+                    "Review recent application changes"
+                ],
+                "automated_actions": [
+                    {"action": "Reload Nginx config gracefully: nginx -s reload", "risk_level": "LOW"},
+                    {"action": "Restart Nginx worker processes", "risk_level": "MEDIUM"}
+                ],
                 "escalation_needed": False,
                 "estimated_recovery_time": "5-10 minutes",
-                "prevention_measures": ["Error monitoring", "Dependency checks", "Health alerts"]
+                "prevention_measures": [
+                    "Implement request validation middleware",
+                    "Set up real-time error alerts via monitoring",
+                    "Regular Nginx configuration review",
+                    "Load testing before production deployment"
+                ]
             },
-            "critical_event": {
-                "immediate_actions": ["Activate incident response", "Notify team", "Enable verbose logging"],
-                "automated_actions": [{"action": "Failover to backup", "risk_level": "HIGH"}],
+            ("error_event", "database"): {
+                "immediate_actions": [
+                    "Check database connectivity: mysql -u user -p -h host",
+                    "Review recent slow queries in logs",
+                    "Check available disk space: df -h",
+                    "Verify database service status: systemctl status mysql/postgres"
+                ],
+                "automated_actions": [
+                    {"action": "Kill long-running queries", "risk_level": "MEDIUM"},
+                    {"action": "Rebuild corrupted indexes", "risk_level": "HIGH"}
+                ],
+                "escalation_needed": False,
+                "estimated_recovery_time": "10-20 minutes",
+                "prevention_measures": [
+                    "Regular index maintenance and optimization",
+                    "Query performance monitoring (enable slow query log)",
+                    "Automated backups and replication",
+                    "Regular integrity checks"
+                ]
+            },
+            ("critical_event", "storage"): {
+                "immediate_actions": [
+                    "Check disk usage: df -h && du -sh /*",
+                    "Identify large files: find / -size +100M -type f 2>/dev/null",
+                    "Clear old logs: rm /var/log/old-*.log",
+                    "Remove temporary files: rm -rf /tmp/*"
+                ],
+                "automated_actions": [
+                    {"action": "Enable log rotation immediately", "risk_level": "LOW"},
+                    {"action": "Archive old data to external storage", "risk_level": "MEDIUM"}
+                ],
                 "escalation_needed": True,
-                "estimated_recovery_time": "15-30 minutes",
-                "prevention_measures": ["Disaster recovery", "Redundancy", "Load balancing"]
+                "estimated_recovery_time": "20-30 minutes",
+                "prevention_measures": [
+                    "Configure automated log rotation (logrotate)",
+                    "Set up disk usage alerts (alert at 80%, critical at 90%)",
+                    "Regular cleanup of temporary files",
+                    "Archive old data periodically to cold storage"
+                ]
             },
-            "service_crash": {
-                "immediate_actions": ["Restart service", "Check resources", "Review logs"],
-                "automated_actions": [{"action": "Auto-restart on failure", "risk_level": "LOW"}],
+            ("service_crash", "nginx"): {
+                "immediate_actions": [
+                    "Check system logs for OOM: dmesg | grep nginx",
+                    "Verify memory availability: free -h",
+                    "Check for core dumps: ls -la /var/crash/",
+                    "Review Nginx error log for segfault"
+                ],
+                "automated_actions": [
+                    {"action": "Restart Nginx service: systemctl restart nginx", "risk_level": "LOW"},
+                    {"action": "Increase memory limits if OOM detected", "risk_level": "MEDIUM"}
+                ],
                 "escalation_needed": False,
                 "estimated_recovery_time": "2-5 minutes",
-                "prevention_measures": ["Memory profiling", "Resource limits", "Health checks"]
+                "prevention_measures": [
+                    "Set appropriate memory limits: ulimit -m",
+                    "Update Nginx to latest stable version",
+                    "Enable core dump for debugging: ulimit -c unlimited",
+                    "Monitor memory usage trends"
+                ]
             },
-            "timeout": {
-                "immediate_actions": ["Check network", "Review queries", "Increase timeout"],
-                "automated_actions": [{"action": "Enable caching", "risk_level": "LOW"}],
+            ("memory_high", "database"): {
+                "immediate_actions": [
+                    "Check memory usage: free -h && ps aux | grep mysql/postgres",
+                    "Identify memory-consuming queries",
+                    "Reduce buffer pool size temporarily",
+                    "Kill non-critical connections"
+                ],
+                "automated_actions": [
+                    {"action": "Flush cache/buffers", "risk_level": "MEDIUM"},
+                    {"action": "Restart database service to reclaim memory", "risk_level": "HIGH"}
+                ],
                 "escalation_needed": False,
                 "estimated_recovery_time": "5-15 minutes",
-                "prevention_measures": ["Query optimization", "Connection pooling", "Caching"]
+                "prevention_measures": [
+                    "Configure appropriate buffer pool size based on available memory",
+                    "Implement connection pooling",
+                    "Monitor memory usage and set alerts",
+                    "Regular garbage collection tuning"
+                ]
             },
-            "memory_high": {
-                "immediate_actions": ["Free memory", "Kill non-essential", "Check leaks"],
-                "automated_actions": [{"action": "Clear cache", "risk_level": "LOW"}],
+            ("cpu_spike", "database"): {
+                "immediate_actions": [
+                    "Identify expensive queries: SHOW PROCESSLIST;",
+                    "Check query execution plan: EXPLAIN <query>",
+                    "Look for missing indexes",
+                    "Monitor CPU usage: top -p <pid>"
+                ],
+                "automated_actions": [
+                    {"action": "Kill long-running queries: KILL <id>", "risk_level": "MEDIUM"},
+                    {"action": "Add missing indexes", "risk_level": "MEDIUM"}
+                ],
                 "escalation_needed": False,
-                "estimated_recovery_time": "5 minutes",
-                "prevention_measures": ["Memory monitoring", "GC tuning", "Resource limits"]
+                "estimated_recovery_time": "10-20 minutes",
+                "prevention_measures": [
+                    "Analyze and optimize slow queries",
+                    "Create appropriate indexes on frequently searched columns",
+                    "Implement query caching",
+                    "Regular performance profiling and optimization"
+                ]
             },
-            "cpu_spike": {
-                "immediate_actions": ["Identify heavy process", "Enable throttling", "Review jobs"],
-                "automated_actions": [{"action": "Load balancing", "risk_level": "MEDIUM"}],
-                "escalation_needed": False,
+            ("service_down", "nginx"): {
+                "immediate_actions": [
+                    "Check service status: systemctl status nginx",
+                    "Check if port is in use: netstat -tulnp | grep 80/443",
+                    "Verify configuration: nginx -t",
+                    "Check service logs: journalctl -u nginx -n 50"
+                ],
+                "automated_actions": [
+                    {"action": "Start Nginx service: systemctl start nginx", "risk_level": "LOW"},
+                    {"action": "Force kill existing processes and restart", "risk_level": "MEDIUM"}
+                ],
+                "escalation_needed": True,
                 "estimated_recovery_time": "5-10 minutes",
-                "prevention_measures": ["CPU profiling", "Load testing", "Auto-scaling"]
-            }
+                "prevention_measures": [
+                    "Enable automatic service restart on failure",
+                    "Monitor service health with watchdog",
+                    "Set up instant alerts for service down",
+                    "Implement health check endpoints"
+                ]
+            },
         }
     
     def suggest_remediation(self, anomaly: dict, root_cause: dict) -> dict:
-        """Intelligent remediation with LLM + fallback"""
+        """Smart remediation with component-specific actions"""
         anomaly_type = anomaly.get("anomaly_type", "unknown")
+        component = anomaly.get("affected_component", "system")
         
-        # Try LLM first
-        try:
-            result = self._llm_remediation(anomaly, root_cause)
-            if result:
-                return result
-        except Exception as e:
-            print(f"LLM remediation failed: {e}, using fallback")
+        # Try specific scenario
+        key = (anomaly_type, component)
+        if key in self.REMEDIATION:
+            return self.REMEDIATION[key]
         
-        # Fallback to knowledge base
-        if anomaly_type in self.FALLBACK:
-            return self.FALLBACK[anomaly_type]
+        # Try just anomaly type
+        for k, v in self.REMEDIATION.items():
+            if k[0] == anomaly_type:
+                return v
         
+        # Generic fallback
         return {
-            "immediate_actions": ["Investigate", "Monitor"],
-            "automated_actions": [{"action": "Monitor", "risk_level": "LOW"}],
+            "immediate_actions": [
+                f"Investigate {anomaly_type} in {component}",
+                "Check system logs",
+                "Monitor system metrics",
+                "Notify operations team"
+            ],
+            "automated_actions": [{"action": "Monitor and log incident", "risk_level": "LOW"}],
             "escalation_needed": True,
-            "estimated_recovery_time": "Unknown",
-            "prevention_measures": ["Implement monitoring"]
+            "estimated_recovery_time": "15-30 minutes",
+            "prevention_measures": [
+                "Implement comprehensive monitoring",
+                "Regular system health checks",
+                "Automated alerting on critical events"
+            ]
         }
-    
-    def _llm_remediation(self, anomaly: dict, root_cause: dict) -> dict:
-        """Call LLM with SHORT timeout"""
-        prompt = f"""Suggest remediation. RESPOND ONLY AS JSON.
-
-Issue: {anomaly.get('anomaly_type')} - {root_cause.get('root_cause', 'Unknown')}
-Severity: {anomaly.get('severity')}
-
-JSON response (NO OTHER TEXT):
-{{"immediate_actions": ["action1", "action2"], "automated_actions": [{{"action": "fix", "risk_level": "LOW"}}], "escalation_needed": false, "estimated_recovery_time": "5 minutes", "prevention_measures": ["prevent1"]}}"""
-        
-        start = time.time()
-        response = requests.post(
-            f"{self.ollama_url}/api/generate",
-            json={
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=15  # SHORT timeout
-        )
-        elapsed = time.time() - start
-        print(f"LLM remediation took {elapsed:.1f}s")
-        
-        if response.status_code == 200:
-            try:
-                text = response.json()["response"].strip()
-                result = json.loads(text)
-                if "immediate_actions" in result:
-                    return result
-            except:
-                pass
-        
-        return None
 
 if __name__ == "__main__":
     remediation = RemediationAgent()
-    anomaly = {"anomaly_type": "critical_event", "severity": "CRITICAL"}
-    root_cause = {"root_cause": "System overload"}
-    result = remediation.suggest_remediation(anomaly, root_cause)
-    print(json.dumps(result, indent=2))
+    
+    test_cases = [
+        ({"anomaly_type": "error_event", "affected_component": "nginx"}, {}),
+        ({"anomaly_type": "critical_event", "affected_component": "storage"}, {}),
+        ({"anomaly_type": "memory_high", "affected_component": "database"}, {}),
+    ]
+    
+    for anomaly, root_cause in test_cases:
+        result = remediation.suggest_remediation(anomaly, root_cause)
+        print(f"{anomaly}:")
+        print(json.dumps(result, indent=2))
+        print()
