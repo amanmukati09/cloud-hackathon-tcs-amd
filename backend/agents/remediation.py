@@ -1,122 +1,119 @@
+import requests
 import json
+import time
 
 class RemediationAgent:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
-        pass
-    
-    # Knowledge base for remediation
-    REMEDIATION_PLANS = {
-        "error_event": {
-            "immediate_actions": ["Review error logs", "Check service status", "Verify database connectivity"],
-            "automated_actions": [
-                {"action": "Restart affected service", "risk_level": "MEDIUM"},
-                {"action": "Check resource availability", "risk_level": "LOW"}
-            ],
-            "escalation_needed": False,
-            "estimated_recovery_time": "5-10 minutes",
-            "prevention_measures": ["Implement error handling", "Set up alerts", "Regular log review"]
-        },
-        "critical_event": {
-            "immediate_actions": ["Activate incident response", "Notify on-call team", "Enable verbose logging"],
-            "automated_actions": [
-                {"action": "Failover to backup system", "risk_level": "HIGH"},
-                {"action": "Scale resources dynamically", "risk_level": "MEDIUM"}
-            ],
-            "escalation_needed": True,
-            "estimated_recovery_time": "15-30 minutes",
-            "prevention_measures": ["Disaster recovery plan", "Load balancing", "Redundancy"]
-        },
-        "service_crash": {
-            "immediate_actions": ["Restart service immediately", "Check system resources", "Review recent changes"],
-            "automated_actions": [
-                {"action": "Auto-restart on failure", "risk_level": "LOW"},
-                {"action": "Increase memory allocation", "risk_level": "MEDIUM"}
-            ],
-            "escalation_needed": False,
-            "estimated_recovery_time": "2-5 minutes",
-            "prevention_measures": ["Memory profiling", "Load testing", "Health checks"]
-        },
-        "service_down": {
-            "immediate_actions": ["Check service status", "Verify network connectivity", "Review firewall rules"],
-            "automated_actions": [
-                {"action": "Restart service", "risk_level": "LOW"},
-                {"action": "Restore from backup", "risk_level": "HIGH"}
-            ],
-            "escalation_needed": True,
-            "estimated_recovery_time": "10-20 minutes",
-            "prevention_measures": ["Redundant services", "Health monitoring", "Automatic restart"]
-        },
-        "timeout": {
-            "immediate_actions": ["Increase timeout threshold", "Check network latency", "Review connection pool"],
-            "automated_actions": [
-                {"action": "Optimize queries", "risk_level": "MEDIUM"},
-                {"action": "Enable caching", "risk_level": "LOW"}
-            ],
-            "escalation_needed": False,
-            "estimated_recovery_time": "5-15 minutes",
-            "prevention_measures": ["Query optimization", "Connection pooling", "Caching strategy"]
-        },
-        "memory_high": {
-            "immediate_actions": ["Free up memory", "Kill non-essential processes", "Check for memory leaks"],
-            "automated_actions": [
-                {"action": "Clear cache", "risk_level": "LOW"},
-                {"action": "Increase swap space", "risk_level": "MEDIUM"}
-            ],
-            "escalation_needed": False,
-            "estimated_recovery_time": "5 minutes",
-            "prevention_measures": ["Memory monitoring", "Garbage collection tuning", "Resource limits"]
-        },
-        "cpu_spike": {
-            "immediate_actions": ["Identify heavy processes", "Enable throttling", "Review background jobs"],
-            "automated_actions": [
-                {"action": "Reduce thread count", "risk_level": "MEDIUM"},
-                {"action": "Enable load balancing", "risk_level": "MEDIUM"}
-            ],
-            "escalation_needed": False,
-            "estimated_recovery_time": "5-10 minutes",
-            "prevention_measures": ["CPU profiling", "Load testing", "Auto-scaling"]
-        },
-        "latency": {
-            "immediate_actions": ["Check network conditions", "Review slow queries", "Verify resource availability"],
-            "automated_actions": [
-                {"action": "Enable query caching", "risk_level": "LOW"},
-                {"action": "Add more replicas", "risk_level": "MEDIUM"}
-            ],
-            "escalation_needed": False,
-            "estimated_recovery_time": "10 minutes",
-            "prevention_measures": ["Performance monitoring", "CDN usage", "Database indexing"]
-        },
-        "disk_full": {
-            "immediate_actions": ["Delete old logs", "Remove temp files", "Archive old data"],
-            "automated_actions": [
-                {"action": "Expand disk space", "risk_level": "MEDIUM"},
-                {"action": "Enable log rotation", "risk_level": "LOW"}
-            ],
-            "escalation_needed": True,
-            "estimated_recovery_time": "15-30 minutes",
-            "prevention_measures": ["Log rotation", "Disk monitoring", "Cleanup scripts"]
+        self.ollama_url = ollama_url
+        self.model = "mistral"
+        
+        # Fallback plans
+        self.FALLBACK = {
+            "error_event": {
+                "immediate_actions": ["Review error logs", "Check dependencies", "Restart service"],
+                "automated_actions": [{"action": "Auto-restart", "risk_level": "LOW"}],
+                "escalation_needed": False,
+                "estimated_recovery_time": "5-10 minutes",
+                "prevention_measures": ["Error monitoring", "Dependency checks", "Health alerts"]
+            },
+            "critical_event": {
+                "immediate_actions": ["Activate incident response", "Notify team", "Enable verbose logging"],
+                "automated_actions": [{"action": "Failover to backup", "risk_level": "HIGH"}],
+                "escalation_needed": True,
+                "estimated_recovery_time": "15-30 minutes",
+                "prevention_measures": ["Disaster recovery", "Redundancy", "Load balancing"]
+            },
+            "service_crash": {
+                "immediate_actions": ["Restart service", "Check resources", "Review logs"],
+                "automated_actions": [{"action": "Auto-restart on failure", "risk_level": "LOW"}],
+                "escalation_needed": False,
+                "estimated_recovery_time": "2-5 minutes",
+                "prevention_measures": ["Memory profiling", "Resource limits", "Health checks"]
+            },
+            "timeout": {
+                "immediate_actions": ["Check network", "Review queries", "Increase timeout"],
+                "automated_actions": [{"action": "Enable caching", "risk_level": "LOW"}],
+                "escalation_needed": False,
+                "estimated_recovery_time": "5-15 minutes",
+                "prevention_measures": ["Query optimization", "Connection pooling", "Caching"]
+            },
+            "memory_high": {
+                "immediate_actions": ["Free memory", "Kill non-essential", "Check leaks"],
+                "automated_actions": [{"action": "Clear cache", "risk_level": "LOW"}],
+                "escalation_needed": False,
+                "estimated_recovery_time": "5 minutes",
+                "prevention_measures": ["Memory monitoring", "GC tuning", "Resource limits"]
+            },
+            "cpu_spike": {
+                "immediate_actions": ["Identify heavy process", "Enable throttling", "Review jobs"],
+                "automated_actions": [{"action": "Load balancing", "risk_level": "MEDIUM"}],
+                "escalation_needed": False,
+                "estimated_recovery_time": "5-10 minutes",
+                "prevention_measures": ["CPU profiling", "Load testing", "Auto-scaling"]
+            }
         }
-    }
     
     def suggest_remediation(self, anomaly: dict, root_cause: dict) -> dict:
-        """Instant remediation suggestions using knowledge base"""
+        """Intelligent remediation with LLM + fallback"""
         anomaly_type = anomaly.get("anomaly_type", "unknown")
         
-        if anomaly_type in self.REMEDIATION_PLANS:
-            return self.REMEDIATION_PLANS[anomaly_type]
+        # Try LLM first
+        try:
+            result = self._llm_remediation(anomaly, root_cause)
+            if result:
+                return result
+        except Exception as e:
+            print(f"LLM remediation failed: {e}, using fallback")
         
-        # Fallback
+        # Fallback to knowledge base
+        if anomaly_type in self.FALLBACK:
+            return self.FALLBACK[anomaly_type]
+        
         return {
-            "immediate_actions": ["Investigate the issue", "Check logs"],
-            "automated_actions": [{"action": "Monitor situation", "risk_level": "LOW"}],
+            "immediate_actions": ["Investigate", "Monitor"],
+            "automated_actions": [{"action": "Monitor", "risk_level": "LOW"}],
             "escalation_needed": True,
             "estimated_recovery_time": "Unknown",
             "prevention_measures": ["Implement monitoring"]
         }
+    
+    def _llm_remediation(self, anomaly: dict, root_cause: dict) -> dict:
+        """Call LLM with SHORT timeout"""
+        prompt = f"""Suggest remediation. RESPOND ONLY AS JSON.
+
+Issue: {anomaly.get('anomaly_type')} - {root_cause.get('root_cause', 'Unknown')}
+Severity: {anomaly.get('severity')}
+
+JSON response (NO OTHER TEXT):
+{{"immediate_actions": ["action1", "action2"], "automated_actions": [{{"action": "fix", "risk_level": "LOW"}}], "escalation_needed": false, "estimated_recovery_time": "5 minutes", "prevention_measures": ["prevent1"]}}"""
+        
+        start = time.time()
+        response = requests.post(
+            f"{self.ollama_url}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=15  # SHORT timeout
+        )
+        elapsed = time.time() - start
+        print(f"LLM remediation took {elapsed:.1f}s")
+        
+        if response.status_code == 200:
+            try:
+                text = response.json()["response"].strip()
+                result = json.loads(text)
+                if "immediate_actions" in result:
+                    return result
+            except:
+                pass
+        
+        return None
 
 if __name__ == "__main__":
     remediation = RemediationAgent()
-    
-    anomaly = {"anomaly_type": "critical_event"}
-    result = remediation.suggest_remediation(anomaly, {})
+    anomaly = {"anomaly_type": "critical_event", "severity": "CRITICAL"}
+    root_cause = {"root_cause": "System overload"}
+    result = remediation.suggest_remediation(anomaly, root_cause)
     print(json.dumps(result, indent=2))
