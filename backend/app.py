@@ -229,6 +229,101 @@ async def delete_user(target_id: int, current_user: User = Depends(get_current_u
     db.commit()
     return {"status": "success", "message": f"User {target_id} purged."}
 
+
+@app.get("/admin/users/{target_id}/incidents")
+async def get_user_incidents_admin(target_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Admin endpoint to read a specific user's incident logs."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied: Root Admin required.")
+    
+    incidents = db.query(Incident).filter(Incident.user_id == target_id).order_by(Incident.timestamp.desc()).all()
+    return [{
+        "ID": i.id,
+        "Date": i.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "Raw Logs": i.raw_logs,
+        "Anomaly Found": i.anomaly_description,
+        "Root Cause": i.root_cause,
+        "Remediation": i.remediation_action,
+        "Status": i.status
+    } for i in incidents]
+
+@app.get("/admin/users/{target_id}/chats")
+async def get_user_chats_admin(target_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Admin endpoint to read a specific user's chat history."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied: Root Admin required.")
+    
+    messages = db.query(ChatMessage).join(ChatSession).filter(ChatSession.user_id == target_id).order_by(ChatSession.id.desc(), ChatMessage.timestamp.asc()).all()
+    return [{
+        "Session ID": m.session_id,
+        "Time": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "Role": m.role.upper(),
+        "Message Content": m.content
+    } for m in messages]
+    
+    
+# --- QA / ESCALATION TICKETING ROUTES ---
+
+class TicketCreate(BaseModel):
+    question: str
+
+class TicketAnswer(BaseModel):
+    answer: str
+
+@app.post("/escalations")
+async def create_escalation(ticket: TicketCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from models import EscalationTicket
+    new_ticket = EscalationTicket(user_id=current_user.id, question=ticket.question)
+    db.add(new_ticket)
+    db.commit()
+    return {"status": "success"}
+
+@app.get("/escalations/my")
+async def get_my_escalations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from models import EscalationTicket
+    tickets = db.query(EscalationTicket).filter(EscalationTicket.user_id == current_user.id).order_by(EscalationTicket.created_at.desc()).all()
+    return [{
+        "Ticket ID": t.id, 
+        "Date": t.created_at.strftime("%Y-%m-%d %H:%M"), 
+        "Question": t.question, 
+        "Admin Answer": t.answer or "⏳ Pending Review...", 
+        "Status": "🟢 OPEN" if t.status == "open" else "✅ RESOLVED"
+    } for t in tickets]
+
+@app.get("/admin/escalations")
+async def get_all_escalations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from models import EscalationTicket
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    tickets = db.query(EscalationTicket).order_by(EscalationTicket.status.desc(), EscalationTicket.created_at.desc()).all()
+    result = []
+    for t in tickets:
+        user = db.query(User).filter(User.id == t.user_id).first()
+        result.append({
+            "Ticket ID": t.id,
+            "User": user.email if user else "Unknown",
+            "Status": "🟢 OPEN" if t.status == "open" else "✅ RESOLVED",
+            "Question": t.question,
+            "Answer": t.answer or ""
+        })
+    return result
+
+@app.post("/admin/escalations/{ticket_id}/answer")
+async def answer_escalation(ticket_id: int, payload: TicketAnswer, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from models import EscalationTicket
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    ticket = db.query(EscalationTicket).filter(EscalationTicket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    ticket.answer = payload.answer
+    ticket.status = "resolved"
+    db.commit()
+    return {"status": "success"}
+    
 @app.get("/health")
 def health():
     return {"status": "ok"}
