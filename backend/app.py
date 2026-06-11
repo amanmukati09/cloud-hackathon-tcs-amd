@@ -184,6 +184,22 @@ async def get_admin_metrics(current_user: User = Depends(get_current_user), db: 
     if not current_user.is_admin: raise HTTPException(status_code=403, detail="Access Denied.")
     return {"users": db.query(User).count(), "incidents": db.query(Incident).count(), "chats": db.query(ChatSession).count()}
 
+@app.get("/admin/analytics/data")
+async def get_analytics_data(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetches raw incident data for the Executive Analytics Dashboard."""
+    if not current_user.is_admin: 
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    incidents = db.query(Incident).all()
+    # We only send the minimum data needed for graphing to keep the payload lightweight
+    return [{
+        "date": i.timestamp.strftime("%Y-%m-%d"), 
+        "status": i.status, 
+        "description": i.anomaly_description
+    } for i in incidents]
+
+    
+
 @app.get("/admin/users")
 async def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current_user.is_admin: raise HTTPException(status_code=403, detail="Access Denied.")

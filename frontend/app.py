@@ -64,7 +64,7 @@ footer { display: none !important; }
     flex-direction: column !important;
     height: auto !important;
     min-height: 0 !important;
-    overflow: hidden !important;  /* CRITICAL: prevents card from growing */
+    overflow: hidden !important;
 }
 .push-bottom { margin-top: auto !important; }
 
@@ -83,13 +83,13 @@ footer { display: none !important; }
 .glass-card > * {
     margin-top: 0 !important;
     margin-bottom: 0.5rem !important;
-    flex-shrink: 0 !important;  /* Don't shrink labels/headers */
+    flex-shrink: 0 !important;
 }
 .glass-card > *:last-child {
     margin-bottom: 0 !important;
 }
 
-/* 🔧 SCROLLABLE OUTPUT AREAS – the key fix */
+/* 🔧 SCROLLABLE OUTPUT AREAS */
 .scrollable-output {
     flex: 1 1 auto !important;
     min-height: 0 !important;
@@ -125,7 +125,7 @@ saas_theme = gr.themes.Soft(
     radius_size="lg"
 )
 
-# --- UTILITY & AUTO-CLEAR (unchanged) ---
+# --- UTILITY & AUTO-CLEAR ---
 def is_valid_email(email): 
     return re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email)
 
@@ -136,7 +136,7 @@ def clear_status():
     time.sleep(4)
     return gr.update(value="")
 
-# --- APIs (unchanged) ---
+# --- APIs ---
 def get_chat_sessions(token):
     if not token: return []
     try:
@@ -229,6 +229,38 @@ def load_admin_data(token):
         return users, incidents, chats, df
     except: return 0, 0, 0, pd.DataFrame()
 
+def fetch_analytics(token):
+    if not token: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    try:
+        res = requests.get(f"{BACKEND_URL}/admin/analytics/data", headers={"Authorization": f"Bearer {token}"})
+        if res.status_code != 200: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        df = pd.DataFrame(res.json())
+        if df.empty: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        # Extract Severity from the text description using Regex
+        df['Severity'] = df['description'].apply(
+            lambda x: re.search(r'Severity:\s*([A-Z]+)', str(x)).group(1) 
+            if re.search(r'Severity:\s*([A-Z]+)', str(x)) else 'UNKNOWN'
+        )
+        
+        # Chart 1: Incidents Over Time (Line Plot)
+        timeline_df = df.groupby('date').size().reset_index(name='Incidents')
+        timeline_df['date'] = pd.to_datetime(timeline_df['date'])
+        timeline_df = timeline_df.sort_values('date')
+        
+        # Chart 2: Incidents by Severity (Bar Plot)
+        sev_df = df.groupby('Severity').size().reset_index(name='Count')
+        
+        # Chart 3: Incident Status (Bar Plot)
+        status_df = df.groupby('status').size().reset_index(name='Count')
+        status_df['status'] = status_df['status'].str.upper()
+        
+        return timeline_df, sev_df, status_df
+    except Exception as e:
+        print(f"Analytics Error: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
 def purge_user(token, target_id):
     if not target_id: 
         data = load_admin_data(token)
@@ -300,20 +332,14 @@ def fetch_history(token):
     except: pass
     return pd.DataFrame()
 
-# --- 🔧 NEW: Clean HTML formatting (no raw asterisks, proper rendering) ---
+# --- Clean HTML formatting ---
 def clean_markdown(text):
     """Remove raw markdown asterisks that shouldn't be shown"""
-    # Don't touch HTML tags, but clean up orphaned ** markers
-    import re
-    # Remove ** that aren't part of HTML
     text = re.sub(r'(?<!<[^>]*)\*\*(?!>)', '', text)
     return text
 
 def format_diagnosis(data):
-    """
-    Safely extract and color-code anomaly, root cause, and remediation.
-    Returns clean HTML that renders properly in Gradio Markdown components.
-    """
+    """Safely extract and color-code anomaly, root cause, and remediation."""
     # --- Anomaly Section ---
     anomaly = data.get("anomaly", {})
     if isinstance(anomaly, dict):
@@ -327,7 +353,6 @@ def format_diagnosis(data):
         affected = "Unknown"
         description = str(anomaly) if anomaly else "No description provided."
 
-    # Severity color
     severity_colors = {
         "CRITICAL": "#dc2626",
         "HIGH": "#ef4444",
@@ -363,7 +388,6 @@ def format_diagnosis(data):
         evidence = []
         factors = []
 
-    # Confidence color
     if confidence >= 0.7:
         conf_color = "#10b981"
         conf_label = "High"
@@ -448,7 +472,7 @@ def format_diagnosis(data):
 
     return anomaly_html, rc_html, rem_html
 
-# --- DIAGNOSE FUNCTION – now uses Markdown components for proper HTML rendering ---
+# --- DIAGNOSE FUNCTION ---
 def diagnose_logs(logs_text, token):
     if not token or not logs_text.strip(): 
         return gr.update(), gr.update(), gr.update(), gr.update()
@@ -485,10 +509,16 @@ def diagnose_logs(logs_text, token):
 def logout():
     gr.Info("🔒 Logged out safely.")
     return (
+        # session_token, auth_view, app_view, welcome_text, role_text, chat_session_dropdown, admin_dashboard_view
         "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(choices=[]), gr.update(visible=False),
+        # log_email, log_pass, log_show_pass, reg_name, reg_email, reg_pass, reg_show_pass
         gr.update(value=""), gr.update(value=""), gr.update(value=False), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=False),
+        # inspect_user_input, inspect_incidents_table, inspect_chats_table, inspect_status_msg
         gr.update(value=None), pd.DataFrame(), pd.DataFrame(), gr.update(value=""),
-        gr.update(value=""), pd.DataFrame(), gr.update(value=None), gr.update(value=""), pd.DataFrame()
+        # ticket_question_input, my_tickets_table, answer_ticket_id_input, answer_ticket_input, admin_tickets_table
+        gr.update(value=""), pd.DataFrame(), gr.update(value=None), gr.update(value=""), pd.DataFrame(),
+        # metric_users, metric_incidents, metric_chats, plot_timeline, plot_severity, plot_status
+        0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     )
 
 # --- UI LAYOUT ---
@@ -521,48 +551,70 @@ with gr.Blocks(title="AegisAI") as demo:
             with gr.Column(scale=0, min_width=120):
                 logout_btn = gr.Button("Logout 🔒", variant="stop", elem_classes="logout-btn")
             
+        # Admin Dashboard
         with gr.Column(visible=False) as admin_dashboard_view:
-            with gr.Column(elem_classes="admin-panel"):
-                gr.Markdown("## 🎛️ Root Administrator Dashboard")
-                with gr.Row():
-                    metric_users = gr.Number(label="Total Registered Users", interactive=False)
-                    metric_incidents = gr.Number(label="Incidents Analyzed", interactive=False)
-                    metric_chats = gr.Number(label="Active AI Sessions", interactive=False)
+            gr.Markdown("## 🎛️ Root Administrator Dashboard")
+            
+            with gr.Tabs():
+                # --- TAB 1: VISUAL ANALYTICS ---
+                with gr.Tab("📈 Global Analytics"):
+                    with gr.Row():
+                        metric_users = gr.Number(label="Total Registered Users", interactive=False)
+                        metric_incidents = gr.Number(label="Incidents Analyzed", interactive=False)
+                        metric_chats = gr.Number(label="Active AI Sessions", interactive=False)
+                    
+                    gr.HTML("<hr style='border-color: rgba(255,255,255,0.1); margin: 15px 0;'>")
+                    
+                    with gr.Row(equal_height=True):
+                        with gr.Column(scale=2, elem_classes="glass-card"):
+                            gr.Markdown("### 📅 Incident Volume Over Time (30 Days)")
+                            # FIXED: Removed 'title' parameter and kept only valid params
+                            plot_timeline = gr.LinePlot(x="date", y="Incidents", tooltip=["date", "Incidents"], height=300)
+                            
+                        with gr.Column(scale=1, elem_classes="glass-card"):
+                            gr.Markdown("### ⚠️ Incidents by Severity")
+                            # FIXED: Removed 'horizontal' parameter
+                            plot_severity = gr.BarPlot(x="Severity", y="Count", color="Severity", tooltip=["Severity", "Count"], height=300)
+                            
+                    with gr.Row():
+                        with gr.Column(elem_classes="glass-card"):
+                            gr.Markdown("### 🔄 Current Resolution Status")
+                            plot_status = gr.BarPlot(x="status", y="Count", color="status", tooltip=["status", "Count"], height=250)
                 
-                gr.HTML("<hr style='border-color: rgba(255,255,255,0.1); margin: 15px 0;'>")
-                
-                with gr.Row(equal_height=True):
-                    with gr.Column(scale=3, elem_classes="glass-card"):
-                        gr.Markdown("### 👥 User Directory")
-                        admin_users_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
-                    with gr.Column(scale=1, elem_classes="glass-card"):
-                        gr.Markdown("### ⚙️ Account Controls")
-                        refresh_admin_btn = gr.Button("🔄 Sync Directory", variant="secondary")
-                        delete_user_input = gr.Number(label="Target User ID", precision=0)
-                        delete_user_btn = gr.Button("🚨 Terminate Account", variant="stop", elem_classes="push-bottom")
-                        admin_status_msg = gr.Markdown("")
+                # --- TAB 2: USER DIRECTORY & INSPECTION ---
+                with gr.Tab("👥 User Directory & Deep Dive"):
+                    with gr.Row(equal_height=True):
+                        with gr.Column(scale=3, elem_classes="glass-card"):
+                            gr.Markdown("### 👥 User Directory")
+                            admin_users_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+                        with gr.Column(scale=1, elem_classes="glass-card"):
+                            gr.Markdown("### ⚙️ Account Controls")
+                            refresh_admin_btn = gr.Button("🔄 Sync Directory", variant="secondary")
+                            delete_user_input = gr.Number(label="Target User ID", precision=0)
+                            delete_user_btn = gr.Button("🚨 Terminate Account", variant="stop", elem_classes="push-bottom")
+                            admin_status_msg = gr.Markdown("")
 
-                with gr.Row(equal_height=True):
-                    with gr.Column(scale=3, elem_classes="glass-card"):
-                        gr.Markdown("### 🔍 Deep-Dive User Inspection")
-                        inspect_incidents_table = gr.Dataframe(label="Raw Incident Submissions", interactive=False, wrap=True, elem_classes="short-table")
-                        inspect_chats_table = gr.Dataframe(label="Copilot Chat Transcripts", interactive=False, wrap=True, elem_classes="short-table")
-                    with gr.Column(scale=1, elem_classes="glass-card"):
-                        gr.Markdown("### ⚙️ Fetch Telemetry")
-                        inspect_user_input = gr.Number(label="User ID to Inspect", precision=0)
-                        inspect_btn = gr.Button("Fetch User History", variant="primary", elem_classes="push-bottom")
-                        inspect_status_msg = gr.Markdown("")
+                    with gr.Row(equal_height=True):
+                        with gr.Column(scale=3, elem_classes="glass-card"):
+                            gr.Markdown("### 🔍 Deep-Dive User Inspection")
+                            inspect_incidents_table = gr.Dataframe(label="Raw Incident Submissions", interactive=False, wrap=True, elem_classes="short-table")
+                            inspect_chats_table = gr.Dataframe(label="Copilot Chat Transcripts", interactive=False, wrap=True, elem_classes="short-table")
+                        with gr.Column(scale=1, elem_classes="glass-card"):
+                            gr.Markdown("### ⚙️ Fetch Telemetry")
+                            inspect_user_input = gr.Number(label="User ID to Inspect", precision=0)
+                            inspect_btn = gr.Button("Fetch User History", variant="primary", elem_classes="push-bottom")
+                            inspect_status_msg = gr.Markdown("")
 
-                with gr.Row(equal_height=True):
-                    with gr.Column(scale=3, elem_classes="glass-card"):
-                        gr.Markdown("### 🎟️ Escalation & QA Tickets")
-                        admin_tickets_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
-                    with gr.Column(scale=1, elem_classes="glass-card"):
-                        gr.Markdown("### ⚙️ Resolve Tickets")
-                        refresh_admin_tickets_btn = gr.Button("🔄 Sync Tickets", variant="secondary")
-                        answer_ticket_id_input = gr.Number(label="Ticket ID", precision=0)
-                        answer_ticket_input = gr.Textbox(label="Your Answer", lines=2)
-                        answer_ticket_btn = gr.Button("Submit Answer ✅", variant="primary", elem_classes="push-bottom")
+                    with gr.Row(equal_height=True):
+                        with gr.Column(scale=3, elem_classes="glass-card"):
+                            gr.Markdown("### 🎟️ Escalation & QA Tickets")
+                            admin_tickets_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+                        with gr.Column(scale=1, elem_classes="glass-card"):
+                            gr.Markdown("### ⚙️ Resolve Tickets")
+                            refresh_admin_tickets_btn = gr.Button("🔄 Sync Tickets", variant="secondary")
+                            answer_ticket_id_input = gr.Number(label="Ticket ID", precision=0)
+                            answer_ticket_input = gr.Textbox(label="Your Answer", lines=2)
+                            answer_ticket_btn = gr.Button("Submit Answer ✅", variant="primary", elem_classes="push-bottom")
 
         # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
@@ -581,7 +633,6 @@ with gr.Blocks(title="AegisAI") as demo:
                         ], inputs=logs_input)
                     with gr.Column(scale=1, elem_classes="glass-card"):
                         gr.Markdown("### 📊 Diagnostics Report")
-                        # 🔧 CHANGED: Textbox → Markdown for proper HTML rendering
                         anomaly_out = gr.Markdown(
                             value="*Waiting for log analysis...*",
                             label="🔴 ANOMALY DETECTED",
@@ -643,7 +694,7 @@ with gr.Blocks(title="AegisAI") as demo:
     # --- EVENT WIRING ---
     log_show_pass.change(fn=None, inputs=[log_show_pass], js="(s) => { const el = document.querySelector('#log_pass_input input'); if(el) el.type = s ? 'text' : 'password'; return []; }")
     reg_show_pass.change(fn=None, inputs=[reg_show_pass], js="(s) => { const el = document.querySelector('#reg_pass_input input'); if(el) el.type = s ? 'text' : 'password'; return []; }")
-    
+
     clear_btn.click(
         fn=lambda: ("", "*Waiting for log analysis...*", "*Waiting for log analysis...*", "*Waiting for log analysis...*"), 
         outputs=[logs_input, anomaly_out, rc_out, remed_out], 
@@ -654,6 +705,7 @@ with gr.Blocks(title="AegisAI") as demo:
         fn=api_login, inputs=[log_email, log_pass], outputs=[session_token, auth_view, app_view, welcome_text, role_text, admin_dashboard_view]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
     ).then(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table]
+    ).then(fn=fetch_analytics, inputs=[session_token], outputs=[plot_timeline, plot_severity, plot_status]
     ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table]
     ).then(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table]
     ).then(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
@@ -667,7 +719,8 @@ with gr.Blocks(title="AegisAI") as demo:
         session_token, auth_view, app_view, welcome_text, role_text, chat_session_dropdown, admin_dashboard_view,
         log_email, log_pass, log_show_pass, reg_name, reg_email, reg_pass, reg_show_pass,
         inspect_user_input, inspect_incidents_table, inspect_chats_table, inspect_status_msg,
-        ticket_question_input, my_tickets_table, answer_ticket_id_input, answer_ticket_input, admin_tickets_table
+        ticket_question_input, my_tickets_table, answer_ticket_id_input, answer_ticket_input, admin_tickets_table,
+        metric_users, metric_incidents, metric_chats, plot_timeline, plot_severity, plot_status
     ], queue=False)
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input, session_token], outputs=[anomaly_out, rc_out, remed_out, history_table])
@@ -692,7 +745,9 @@ with gr.Blocks(title="AegisAI") as demo:
     chat_session_dropdown.change(fn=load_chat_session, inputs=[chat_session_dropdown, session_token], outputs=[chatbot_ui, current_chat_id])
     refresh_chat_btn.click(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
 
-    refresh_admin_btn.click(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table])
+    refresh_admin_btn.click(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table]
+    ).then(fn=fetch_analytics, inputs=[session_token], outputs=[plot_timeline, plot_severity, plot_status])
+        
     delete_user_btn.click(
         fn=purge_user, inputs=[session_token, delete_user_input], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table, admin_status_msg]
     ).then(fn=clear_status, outputs=[admin_status_msg])
@@ -704,5 +759,6 @@ with gr.Blocks(title="AegisAI") as demo:
     refresh_my_tickets_btn.click(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table])
     answer_ticket_btn.click(fn=answer_escalation, inputs=[answer_ticket_id_input, answer_ticket_input, session_token], outputs=[answer_ticket_id_input, answer_ticket_input, admin_tickets_table])
 
+# --- MAIN ---
 if __name__ == "__main__":
     demo.queue(default_concurrency_limit=10, max_size=100).launch(share=True, server_name="0.0.0.0", server_port=7860, theme=saas_theme, css=custom_css)
