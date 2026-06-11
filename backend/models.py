@@ -17,6 +17,7 @@ class User(Base):
     full_name = Column(String)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
     incidents = relationship("Incident", back_populates="owner")
     chat_sessions = relationship("ChatSession", back_populates="owner")
 
@@ -30,7 +31,7 @@ class Incident(Base):
     anomaly_description = Column(Text)
     root_cause = Column(Text)
     remediation_action = Column(Text)
-    remediation_status = Column(String, default="pending") # FIX: This was missing and crashing your backend!
+    remediation_status = Column(String, default="pending")
     
     owner = relationship("User", back_populates="incidents")
 
@@ -48,11 +49,23 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("chat_sessions.id"))
-    role = Column(String) # "user" or "ai"
+    role = Column(String)
     content = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
     
     session = relationship("ChatSession", back_populates="messages")
+
+# --- NEW: QA Escalation Ticket Model ---
+class EscalationTicket(Base):
+    __tablename__ = "escalation_tickets"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=True)
+    status = Column(String, default="open") # "open" or "resolved"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    owner = relationship("User", backref="tickets")
 
 Base.metadata.create_all(bind=engine)
 
