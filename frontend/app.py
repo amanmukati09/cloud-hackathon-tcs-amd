@@ -705,4 +705,4 @@ with gr.Blocks(title="AegisAI") as demo:
     answer_ticket_btn.click(fn=answer_escalation, inputs=[answer_ticket_id_input, answer_ticket_input, session_token], outputs=[answer_ticket_id_input, answer_ticket_input, admin_tickets_table])
 
 if __name__ == "__main__":
-    demo.queue().launch(share=True, server_name="0.0.0.0", server_port=7860, theme=saas_theme, css=custom_css)
+    demo.queue(default_concurrency_limit=10, max_size=100).launch(share=True, server_name="0.0.0.0", server_port=7860, theme=saas_theme, css=custom_css)
