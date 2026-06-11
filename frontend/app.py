@@ -3,11 +3,12 @@ import requests
 import pandas as pd
 from datetime import datetime
 import re
+import asyncio
 import time
 
 BACKEND_URL = "http://localhost:8000"
 
-# --- 🎨 FULLY FIXED SAAS CSS: Equal heights + scrollable outputs + logout padding ---
+# --- 🎨 FULLY FIXED SAAS CSS: Strict equal heights + balanced margins ---
 custom_css = """
 /* Base styling */
 body { font-family: 'Inter', -apple-system, sans-serif !important; background-color: #0f172a !important; }
@@ -24,13 +25,7 @@ footer { display: none !important; }
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 .welcome-text h3 { margin: 0 !important; color: #f8fafc !important; font-weight: 600 !important; font-size: 1.3rem !important; }
-.logout-btn { 
-    height: 38px !important; 
-    border-radius: 8px !important; 
-    font-weight: 600 !important; 
-    transition: all 0.2s !important; 
-    padding: 0 15px !important;
-}
+.logout-btn { height: 38px !important; padding: 0 20px !important; border-radius: 8px !important; font-weight: 600 !important; transition: all 0.2s !important; }
 
 /* Footer – tighter padding */
 .footer-container {
@@ -53,7 +48,7 @@ footer { display: none !important; }
     float: none !important; 
 }
 
-/* Glass cards – flex column with strict height control */
+/* Glass cards – flex-1 to fill parent column height */
 .glass-card { 
     background: rgba(30, 41, 59, 0.5) !important; 
     border: 1px solid rgba(255, 255, 255, 0.08) !important; 
@@ -64,11 +59,10 @@ footer { display: none !important; }
     flex-direction: column !important;
     height: auto !important;
     min-height: 0 !important;
-    overflow: hidden !important;  /* CRITICAL: prevents card from growing */
 }
 .push-bottom { margin-top: auto !important; }
 
-/* ========== FORCE EQUAL HEIGHT COLUMNS ========== */
+/* ========== THE REAL FIX: Force equal-height columns to stretch cards ========== */
 .equal-height > .gr-column {
     display: flex !important;
     flex-direction: column !important;
@@ -76,39 +70,11 @@ footer { display: none !important; }
 .equal-height > .gr-column > *:first-child {
     flex: 1 1 auto !important;
     height: auto !important;
-    min-height: 0 !important;
 }
 
 /* Internal spacing */
-.glass-card > * {
-    margin-top: 0 !important;
-    margin-bottom: 0.5rem !important;
-    flex-shrink: 0 !important;  /* Don't shrink labels/headers */
-}
-.glass-card > *:last-child {
-    margin-bottom: 0 !important;
-}
-
-/* 🔧 SCROLLABLE OUTPUT AREAS – the key fix */
-.scrollable-output {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    max-height: 100% !important;
-}
-.scrollable-output label {
-    flex-shrink: 0 !important;
-}
-.scrollable-output > div {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-}
-
-/* Make markdown/HTML in textboxes render properly */
-.gr-textbox[data-testid="textbox"] {
-    overflow-y: auto !important;
-}
+.glass-card > * { margin-top: 0 !important; margin-bottom: 0.5rem !important; }
+.glass-card > *:last-child { margin-bottom: 0 !important; }
 
 /* Tables scrolling */
 .table-scroll { max-height: 300px !important; overflow-y: auto !important; display: block !important; width: 100% !important; border-radius: 8px; }
@@ -125,18 +91,25 @@ saas_theme = gr.themes.Soft(
     radius_size="lg"
 )
 
-# --- UTILITY & AUTO-CLEAR (unchanged) ---
+# --- UTILITY & AUTO-CLEAR ---
 def is_valid_email(email): 
     return re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email)
 
 def is_strong_password(password):
     return re.match(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$", password)
 
-def clear_status():
-    time.sleep(4)
-    return gr.update(value="")
+async def clear_status():
+    await asyncio.sleep(4)
+    return ""
 
-# --- APIs (unchanged) ---
+def _safe_join(val):
+    """Safely converts whatever the AI agent returns (string, list, or dict) into a readable string to prevent sequence crashes."""
+    if not val: return "None"
+    if isinstance(val, list):
+        return ", ".join([str(item) for item in val])
+    return str(val)
+
+# --- APIs ---
 def get_chat_sessions(token):
     if not token: return []
     try:
@@ -178,14 +151,14 @@ def send_chat_msg(message, session_id, history, token):
         yield message, history, session_id, gr.update()
 
 def submit_escalation(question, token):
-    if not question.strip(): return gr.update(), fetch_my_tickets(token)
+    if not question.strip(): return gr.skip(), fetch_my_tickets(token)
     try:
         res = requests.post(f"{BACKEND_URL}/escalations", json={"question": question}, headers={"Authorization": f"Bearer {token}"})
         if res.status_code == 200:
             gr.Info("✅ Ticket submitted securely to the Admin team!")
-            return gr.update(value=""), fetch_my_tickets(token)
+            return "", fetch_my_tickets(token)
     except Exception as e: gr.Warning(f"Error: {e}")
-    return gr.update(), fetch_my_tickets(token)
+    return gr.skip(), fetch_my_tickets(token)
 
 def fetch_my_tickets(token):
     if not token: return pd.DataFrame()
@@ -205,15 +178,15 @@ def load_admin_tickets(token):
 
 def answer_escalation(ticket_id, answer, token):
     if not ticket_id or not answer.strip():
-        return gr.update(), gr.update(), load_admin_tickets(token)
+        return gr.skip(), gr.skip(), load_admin_tickets(token)
     try:
         res = requests.post(f"{BACKEND_URL}/admin/escalations/{int(ticket_id)}/answer", json={"answer": answer}, headers={"Authorization": f"Bearer {token}"})
         if res.status_code == 200:
             gr.Info("✅ Answer posted successfully!")
-            return gr.update(value=None), gr.update(value=""), load_admin_tickets(token)
+            return None, "", load_admin_tickets(token)
         else: gr.Warning(f"❌ Error: {res.json().get('detail')}")
     except Exception as e: gr.Warning(f"❌ Error: {e}")
-    return gr.update(), gr.update(), load_admin_tickets(token)
+    return gr.skip(), gr.skip(), load_admin_tickets(token)
 
 def load_admin_data(token):
     if not token: return 0, 0, 0, pd.DataFrame()
@@ -232,31 +205,31 @@ def load_admin_data(token):
 def purge_user(token, target_id):
     if not target_id: 
         data = load_admin_data(token)
-        return data[0], data[1], data[2], data[3], gr.update(value="⚠️ **Notice:** Please enter a valid User ID to delete.")
+        return data[0], data[1], data[2], data[3], "⚠️ **Notice:** Please enter a valid User ID to delete."
     try:
         res = requests.delete(f"{BACKEND_URL}/admin/users/{int(target_id)}", headers={"Authorization": f"Bearer {token}"})
         data = load_admin_data(token) 
-        if res.status_code == 200: return data[0], data[1], data[2], data[3], gr.update(value=f"✅ **Success:** User ID {int(target_id)} permanently deleted.")
-        else: return data[0], data[1], data[2], data[3], gr.update(value=f"❌ **Action Rejected:** {res.json().get('detail', 'Unknown')}")
+        if res.status_code == 200: return data[0], data[1], data[2], data[3], f"✅ **Success:** User ID {int(target_id)} permanently deleted."
+        else: return data[0], data[1], data[2], data[3], f"❌ **Action Rejected:** {res.json().get('detail', 'Unknown')}"
     except Exception as e: 
         data = load_admin_data(token)
-        return data[0], data[1], data[2], data[3], gr.update(value=f"❌ **Connection Error:** {e}")
+        return data[0], data[1], data[2], data[3], f"❌ **Connection Error:** {e}"
 
 def inspect_user_data(token, target_id):
-    if not target_id: return pd.DataFrame(), pd.DataFrame(), gr.update(value="⚠️ **Notice:** Enter a valid User ID to inspect.")
+    if not target_id: return pd.DataFrame(), pd.DataFrame(), "⚠️ **Notice:** Enter a valid User ID to inspect."
     try:
         inc_res = requests.get(f"{BACKEND_URL}/admin/users/{int(target_id)}/incidents", headers={"Authorization": f"Bearer {token}"})
         chat_res = requests.get(f"{BACKEND_URL}/admin/users/{int(target_id)}/chats", headers={"Authorization": f"Bearer {token}"})
-        if inc_res.status_code == 403 or chat_res.status_code == 403: return pd.DataFrame(), pd.DataFrame(), gr.update(value="❌ **Access Denied.**")
+        if inc_res.status_code == 403 or chat_res.status_code == 403: return pd.DataFrame(), pd.DataFrame(), "❌ **Access Denied.**"
         df_inc = pd.DataFrame(inc_res.json()) if inc_res.status_code == 200 else pd.DataFrame()
         df_chat = pd.DataFrame(chat_res.json()) if chat_res.status_code == 200 else pd.DataFrame()
-        return df_inc, df_chat, gr.update(value=f"✅ **Loaded Activity Log for User ID: {int(target_id)}**")
-    except Exception as e: return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"❌ **Connection Error:** {e}")
+        return df_inc, df_chat, f"✅ **Loaded Activity Log for User ID: {int(target_id)}**"
+    except Exception as e: return pd.DataFrame(), pd.DataFrame(), f"❌ **Connection Error:** {e}"
 
 def api_login(email, password):
     if not email.strip() or not password.strip():
         gr.Warning("⚠️ Enter email and password.")
-        return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
+        return "", gr.Column(visible=True), gr.Column(visible=False), "", "", gr.Column(visible=False)
     try:
         res = requests.post(f"{BACKEND_URL}/auth/login", json={"email": email, "password": password})
         if res.status_code == 200:
@@ -267,16 +240,16 @@ def api_login(email, password):
             welcome_str = f"### 👋 Hello, {raw_name}"
             role_str = "🛡️ Root Admin" if is_admin else "👤 Standard User"
             gr.Info(f"✅ Welcome back, {raw_name}!")
-            return token, gr.update(visible=False), gr.update(visible=True), welcome_str, role_str, gr.update(visible=is_admin)
+            return token, gr.Column(visible=False), gr.Column(visible=True), welcome_str, role_str, gr.Column(visible=is_admin)
         else: gr.Warning(f"❌ Login Denied: {res.json().get('detail')}")
     except Exception as e: gr.Warning(f"❌ Connection Error: {e}")
-    return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
+    return "", gr.Column(visible=True), gr.Column(visible=False), "", "", gr.Column(visible=False)
 
 def api_register(email, password, name):
     name, email = name.strip(), email.strip()
     if not name or not is_valid_email(email) or not is_strong_password(password):
         gr.Warning("⚠️ Please fix validation errors.")
-        return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
+        return "", gr.Column(visible=True), gr.Column(visible=False), "", "", gr.Column(visible=False)
     try:
         res = requests.post(f"{BACKEND_URL}/auth/register", json={"email": email, "password": password, "full_name": name})
         if res.status_code == 200:
@@ -285,10 +258,10 @@ def api_register(email, password, name):
             welcome_str = f"### 👋 Hello, {raw_name}"
             role_str = "👤 Standard User"
             gr.Info("✅ Registration Successful!")
-            return token, gr.update(visible=False), gr.update(visible=True), welcome_str, role_str, gr.update(visible=False)
+            return token, gr.Column(visible=False), gr.Column(visible=True), welcome_str, role_str, gr.Column(visible=False)
         else: gr.Warning(f"❌ Registration Failed: {res.json().get('detail')}")
     except Exception as e: gr.Warning(f"❌ Connection Error: {e}")
-    return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
+    return "", gr.Column(visible=True), gr.Column(visible=False), "", "", gr.Column(visible=False)
 
 def fetch_history(token):
     try:
@@ -300,198 +273,74 @@ def fetch_history(token):
     except: pass
     return pd.DataFrame()
 
-# --- 🔧 NEW: Clean HTML formatting (no raw asterisks, proper rendering) ---
-def clean_markdown(text):
-    """Remove raw markdown asterisks that shouldn't be shown"""
-    # Don't touch HTML tags, but clean up orphaned ** markers
-    import re
-    # Remove ** that aren't part of HTML
-    text = re.sub(r'(?<!<[^>]*)\*\*(?!>)', '', text)
-    return text
-
-def format_diagnosis(data):
-    """
-    Safely extract and color-code anomaly, root cause, and remediation.
-    Returns clean HTML that renders properly in Gradio Markdown components.
-    """
-    # --- Anomaly Section ---
-    anomaly = data.get("anomaly", {})
-    if isinstance(anomaly, dict):
-        anomaly_type = anomaly.get("anomaly_type", "Unknown")
-        severity = anomaly.get("severity", "UNKNOWN").upper()
-        affected = anomaly.get("affected_component", "Unknown")
-        description = anomaly.get("description", "No description provided.")
-    else:
-        anomaly_type = "Unknown"
-        severity = "HIGH"
-        affected = "Unknown"
-        description = str(anomaly) if anomaly else "No description provided."
-
-    # Severity color
-    severity_colors = {
-        "CRITICAL": "#dc2626",
-        "HIGH": "#ef4444",
-        "MEDIUM": "#f59e0b",
-        "LOW": "#10b981",
-        "UNKNOWN": "#6b7280"
-    }
-    severity_color = severity_colors.get(severity, "#6b7280")
-
-    anomaly_html = f"""
-<div style="margin-bottom: 8px;">
-    <span style="color: {severity_color}; font-weight: bold; font-size: 1.1em;">● {severity}</span>
-    <span style="margin-left: 8px; font-weight: 600;">Type:</span> <code>{anomaly_type}</code>
-</div>
-<div style="margin-bottom: 8px;">
-    <span style="font-weight: 600;">Component:</span> {affected}
-</div>
-<div>
-    <span style="font-weight: 600;">Details:</span> {description}
-</div>
-"""
-
-    # --- Root Cause Section ---
-    root_cause = data.get("root_cause", {})
-    if isinstance(root_cause, dict):
-        cause_text = root_cause.get("root_cause", "Not determined")
-        confidence = root_cause.get("confidence", 0.0)
-        evidence = root_cause.get("evidence", [])
-        factors = root_cause.get("contributing_factors", [])
-    else:
-        cause_text = str(root_cause) if root_cause else "Not determined"
-        confidence = 0.0
-        evidence = []
-        factors = []
-
-    # Confidence color
-    if confidence >= 0.7:
-        conf_color = "#10b981"
-        conf_label = "High"
-    elif confidence >= 0.4:
-        conf_color = "#f59e0b"
-        conf_label = "Medium"
-    else:
-        conf_color = "#ef4444"
-        conf_label = "Low"
-
-    rc_html = f"""
-<div style="margin-bottom: 8px;">
-    <span style="font-weight: 600;">Cause:</span> {cause_text}
-</div>
-<div style="margin-bottom: 8px;">
-    <span style="font-weight: 600;">Confidence:</span> 
-    <span style="color: {conf_color}; font-weight: bold;">{confidence:.0%} ({conf_label})</span>
-</div>
-"""
-    if evidence:
-        rc_html += '<div style="margin-bottom: 8px;"><span style="font-weight: 600;">Evidence:</span><ul style="margin: 4px 0; padding-left: 20px;">'
-        for e in evidence:
-            rc_html += f"<li>{e}</li>"
-        rc_html += "</ul></div>"
-
-    if factors:
-        rc_html += '<div><span style="font-weight: 600;">Contributing Factors:</span><ul style="margin: 4px 0; padding-left: 20px;">'
-        for f in factors:
-            rc_html += f"<li>{f}</li>"
-        rc_html += "</ul></div>"
-
-    # --- Remediation Section ---
-    remediation = data.get("remediation", {})
-    if isinstance(remediation, dict):
-        immediate = remediation.get("immediate_actions", [])
-        automated = remediation.get("automated_actions", [])
-        escalation = remediation.get("escalation_needed", False)
-        recovery = remediation.get("estimated_recovery_time", "Unknown")
-        prevention = remediation.get("prevention_measures", [])
-    else:
-        immediate = [str(remediation)] if remediation else []
-        automated = []
-        escalation = True
-        recovery = "Unknown"
-        prevention = []
-
-    rem_html = ""
-    if immediate:
-        rem_html += '<div style="margin-bottom: 8px;"><span style="font-weight: 600;">⚡ Immediate Actions:</span><ul style="margin: 4px 0; padding-left: 20px;">'
-        for a in immediate:
-            rem_html += f"<li>{a}</li>"
-        rem_html += "</ul></div>"
-
-    if automated:
-        rem_html += '<div style="margin-bottom: 8px;"><span style="font-weight: 600;">🤖 Automated Actions:</span><ul style="margin: 4px 0; padding-left: 20px;">'
-        for a in automated:
-            if isinstance(a, dict):
-                action = a.get('action', str(a))
-                risk = a.get('risk_level', 'UNKNOWN')
-                risk_color = "#ef4444" if risk == "HIGH" else "#f59e0b" if risk == "MEDIUM" else "#10b981"
-                rem_html += f'<li>{action} <span style="color: {risk_color}; font-size: 0.85em;">[Risk: {risk}]</span></li>'
-            else:
-                rem_html += f"<li>{a}</li>"
-        rem_html += "</ul></div>"
-
-    esc_color = "#ef4444" if escalation else "#10b981"
-    esc_text = "⚠️ YES" if escalation else "✅ NO"
-    rem_html += f"""
-<div style="margin-bottom: 8px;">
-    <span style="font-weight: 600;">Escalation Needed:</span> 
-    <span style="color: {esc_color}; font-weight: bold;">{esc_text}</span>
-</div>
-<div style="margin-bottom: 8px;">
-    <span style="font-weight: 600;">Estimated Recovery:</span> {recovery}
-</div>
-"""
-    if prevention:
-        rem_html += '<div><span style="font-weight: 600;">🛡️ Prevention:</span><ul style="margin: 4px 0; padding-left: 20px;">'
-        for p in prevention:
-            rem_html += f"<li>{p}</li>"
-        rem_html += "</ul></div>"
-
-    return anomaly_html, rc_html, rem_html
-
-# --- DIAGNOSE FUNCTION – now uses Markdown components for proper HTML rendering ---
+# 🚀 BULLETPROOF AI JSON PARSER
 def diagnose_logs(logs_text, token):
-    if not token or not logs_text.strip(): 
-        return gr.update(), gr.update(), gr.update(), gr.update()
+    if not token or not logs_text.strip(): return gr.skip(), gr.skip(), gr.skip(), gr.skip()
     try:
-        res = requests.post(
-            f"{BACKEND_URL}/diagnose", 
-            json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]}, 
-            headers={"Authorization": f"Bearer {token}"}
-        )
+        res = requests.post(f"{BACKEND_URL}/diagnose", json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]}, headers={"Authorization": f"Bearer {token}"})
         if res.status_code == 200:
             data = res.json()
-            if not data.get("anomaly_detected", True):
-                return (
-                    gr.update(value="### ✅ System Normal\n\nNo anomalies detected in the provided logs."),
-                    gr.update(value="*N/A*"),
-                    gr.update(value="*N/A*"),
-                    fetch_history(token)
-                )
+            if not data.get("anomaly_detected", True): 
+                return "✅ System Normal", "N/A", "N/A", fetch_history(token)
+            
             gr.Info("⚡ Analysis Complete!")
-            anomaly, root_cause, remediation = format_diagnosis(data)
-            return (
-                gr.update(value=anomaly),
-                gr.update(value=root_cause),
-                gr.update(value=remediation),
-                fetch_history(token)
-            )
-        else:
-            error_msg = f"❌ Backend error: {res.status_code}"
-            return gr.update(value=error_msg), gr.update(value=error_msg), gr.update(value=error_msg), gr.update()
-    except Exception as e:
-        error_msg = f"❌ Connection Error: {str(e)}"
-        return gr.update(value=error_msg), gr.update(value=error_msg), gr.update(value=error_msg), gr.update()
+            
+            # --- Safely Parse Anomaly Section ---
+            a_type = data.get("anomaly_type") or (data.get("anomaly", {}).get("anomaly_type", "Unknown") if isinstance(data.get("anomaly"), dict) else "Unknown")
+            a_sev = data.get("severity") or (data.get("anomaly", {}).get("severity", "N/A") if isinstance(data.get("anomaly"), dict) else "N/A")
+            a_comp = data.get("affected_component") or (data.get("anomaly", {}).get("affected_component", "N/A") if isinstance(data.get("anomaly"), dict) else "N/A")
+            a_desc = data.get("description") or (data.get("anomaly", {}).get("description", "No description provided.") if isinstance(data.get("anomaly"), dict) else "No description provided.")
+            out_anomaly = f"Type: {a_type}\nSeverity: {a_sev}\nComponent: {a_comp}\nDescription: {a_desc}"
+            
+            # --- Safely Parse Root Cause Section ---
+            rc_val = data.get("root_cause")
+            if isinstance(rc_val, dict):
+                c_cause = rc_val.get("root_cause", "Unknown")
+                c_conf = rc_val.get("confidence", "N/A")
+                c_ev = _safe_join(rc_val.get("evidence", []))
+                c_cf = _safe_join(rc_val.get("contributing_factors", []))
+                out_rc = f"Cause: {c_cause}\nConfidence: {c_conf}\nEvidence: {c_ev}\nFactors: {c_cf}"
+            else:
+                c_conf = data.get("confidence", "N/A")
+                c_ev = _safe_join(data.get("evidence", []))
+                c_cf = _safe_join(data.get("contributing_factors", []))
+                out_rc = f"Cause: {rc_val or 'Unknown'}\nConfidence: {c_conf}\nEvidence: {c_ev}\nFactors: {c_cf}"
+
+            # --- Safely Parse Remediation Section ---
+            rem_val = data.get("remediation")
+            if isinstance(rem_val, dict):
+                r_imm = _safe_join(rem_val.get("immediate_actions", []))
+                r_auto = _safe_join(rem_val.get("automated_actions", []))
+                r_esc = rem_val.get("escalation_needed", False)
+                r_ert = rem_val.get("estimated_recovery_time", "Unknown")
+                r_prev = _safe_join(rem_val.get("prevention_measures", []))
+                out_rem = f"Immediate: {r_imm}\nAutomated: {r_auto}\nEscalate: {r_esc}\nRecovery: {r_ert}\nPrevention: {r_prev}"
+            else:
+                r_imm = _safe_join(data.get("immediate_actions", []))
+                r_auto = _safe_join(data.get("automated_actions", []))
+                r_esc = data.get("escalation_needed", False)
+                r_ert = data.get("estimated_recovery_time", "Unknown")
+                r_prev = _safe_join(data.get("prevention_measures", []))
+                out_rem = f"Immediate: {r_imm}\nAutomated: {r_auto}\nEscalate: {r_esc}\nRecovery: {r_ert}\nPrevention: {r_prev}"
+
+            return out_anomaly, out_rc, out_rem, fetch_history(token)
+    except Exception as e: 
+        print(f"Diagnostics Parsing Error: {e}")
+        return f"Error processing diagnosis: {e}", "Error", "Error", gr.skip()
+    
+    return "Error", "Error", "Error", gr.skip()
 
 def logout():
     gr.Info("🔒 Logged out safely.")
     return (
-        "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(choices=[]), gr.update(visible=False),
-        gr.update(value=""), gr.update(value=""), gr.update(value=False), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=False),
-        gr.update(value=None), pd.DataFrame(), pd.DataFrame(), gr.update(value=""),
-        gr.update(value=""), pd.DataFrame(), gr.update(value=None), gr.update(value=""), pd.DataFrame()
+        "", gr.Column(visible=True), gr.Column(visible=False), "", "", gr.Dropdown(choices=[], value=None), gr.Column(visible=False),
+        "", "", False, "", "", "", False,
+        None, pd.DataFrame(), pd.DataFrame(), "",
+        "", pd.DataFrame(), None, "", pd.DataFrame()
     )
 
 # --- UI LAYOUT ---
+# 🚀 FIX: Removed theme/css from here to silence the deprecation warning
 with gr.Blocks(title="AegisAI") as demo:
     session_token, current_chat_id = gr.State(""), gr.State(None)
     
@@ -521,6 +370,7 @@ with gr.Blocks(title="AegisAI") as demo:
             with gr.Column(scale=0, min_width=120):
                 logout_btn = gr.Button("Logout 🔒", variant="stop", elem_classes="logout-btn")
             
+        # Admin Dashboard
         with gr.Column(visible=False) as admin_dashboard_view:
             with gr.Column(elem_classes="admin-panel"):
                 gr.Markdown("## 🎛️ Root Administrator Dashboard")
@@ -581,22 +431,9 @@ with gr.Blocks(title="AegisAI") as demo:
                         ], inputs=logs_input)
                     with gr.Column(scale=1, elem_classes="glass-card"):
                         gr.Markdown("### 📊 Diagnostics Report")
-                        # 🔧 CHANGED: Textbox → Markdown for proper HTML rendering
-                        anomaly_out = gr.Markdown(
-                            value="*Waiting for log analysis...*",
-                            label="🔴 ANOMALY DETECTED",
-                            elem_classes="scrollable-output"
-                        )
-                        rc_out = gr.Markdown(
-                            value="*Waiting for log analysis...*",
-                            label="🔍 ROOT CAUSE",
-                            elem_classes="scrollable-output"
-                        )
-                        remed_out = gr.Markdown(
-                            value="*Waiting for log analysis...*",
-                            label="⚙️ REMEDIATION",
-                            elem_classes="scrollable-output"
-                        )
+                        anomaly_out = gr.Textbox(label="🔴 ANOMALY DETECTED", interactive=False, lines=3)
+                        rc_out = gr.Textbox(label="🔍 ROOT CAUSE", interactive=False, lines=3)
+                        remed_out = gr.Textbox(label="⚙️ REMEDIATION", interactive=False, lines=3)
                         
             with gr.Tab("💬 AI Copilot", id="tab_chat"):
                 with gr.Row(equal_height=True):
@@ -644,11 +481,7 @@ with gr.Blocks(title="AegisAI") as demo:
     log_show_pass.change(fn=None, inputs=[log_show_pass], js="(s) => { const el = document.querySelector('#log_pass_input input'); if(el) el.type = s ? 'text' : 'password'; return []; }")
     reg_show_pass.change(fn=None, inputs=[reg_show_pass], js="(s) => { const el = document.querySelector('#reg_pass_input input'); if(el) el.type = s ? 'text' : 'password'; return []; }")
     
-    clear_btn.click(
-        fn=lambda: ("", "*Waiting for log analysis...*", "*Waiting for log analysis...*", "*Waiting for log analysis...*"), 
-        outputs=[logs_input, anomaly_out, rc_out, remed_out], 
-        queue=False
-    )
+    clear_btn.click(fn=lambda: ("", "", "", ""), outputs=[logs_input, anomaly_out, rc_out, remed_out], queue=False)
 
     login_btn.click(
         fn=api_login, inputs=[log_email, log_pass], outputs=[session_token, auth_view, app_view, welcome_text, role_text, admin_dashboard_view]
@@ -672,23 +505,12 @@ with gr.Blocks(title="AegisAI") as demo:
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input, session_token], outputs=[anomaly_out, rc_out, remed_out, history_table])
     refresh_btn.click(fn=fetch_history, inputs=[session_token], outputs=[history_table])
-    discuss_btn.click(
-        fn=lambda l, a: (
-            gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"), 
-            [], 
-            None, 
-            gr.update(value=None), 
-            gr.update(selected="tab_chat")
-        ) if l.strip() else (
-            gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-        ), 
-        inputs=[logs_input, anomaly_out], 
-        outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager], 
-        queue=False
-    )
+    
+    discuss_btn.click(fn=lambda l, a: (f"Anomaly:\n{l}\n\nDiagnosis:\n{a}", [], None, None, gr.Tabs(selected="tab_chat")) if l.strip() else (gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()), inputs=[logs_input, anomaly_out], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager], queue=False)
+    
     chat_send_btn.click(fn=send_chat_msg, inputs=[chat_input, current_chat_id, chatbot_ui, session_token], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown])
     chat_input.submit(fn=send_chat_msg, inputs=[chat_input, current_chat_id, chatbot_ui, session_token], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown])
-    new_chat_btn.click(fn=lambda: ("", [], None, gr.update(value=None)), outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown], queue=False)
+    new_chat_btn.click(fn=lambda: ("", [], None, None), outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown], queue=False)
     chat_session_dropdown.change(fn=load_chat_session, inputs=[chat_session_dropdown, session_token], outputs=[chatbot_ui, current_chat_id])
     refresh_chat_btn.click(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
 
@@ -696,13 +518,16 @@ with gr.Blocks(title="AegisAI") as demo:
     delete_user_btn.click(
         fn=purge_user, inputs=[session_token, delete_user_input], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table, admin_status_msg]
     ).then(fn=clear_status, outputs=[admin_status_msg])
+    
     inspect_btn.click(
         fn=inspect_user_data, inputs=[session_token, inspect_user_input], outputs=[inspect_incidents_table, inspect_chats_table, inspect_status_msg]
     ).then(fn=clear_status, outputs=[inspect_status_msg])
+    
     refresh_admin_tickets_btn.click(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table])
     submit_ticket_btn.click(fn=submit_escalation, inputs=[ticket_question_input, session_token], outputs=[ticket_question_input, my_tickets_table])
     refresh_my_tickets_btn.click(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table])
     answer_ticket_btn.click(fn=answer_escalation, inputs=[answer_ticket_id_input, answer_ticket_input, session_token], outputs=[answer_ticket_id_input, answer_ticket_input, admin_tickets_table])
 
 if __name__ == "__main__":
+    # 🚀 FIX: Passed theme and css directly to launch() so the terminal warning goes away!
     demo.queue().launch(share=True, server_name="0.0.0.0", server_port=7860, theme=saas_theme, css=custom_css)
