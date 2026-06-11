@@ -52,6 +52,8 @@ class Incident(Base):
     root_cause = Column(Text)
     remediation_action = Column(Text)
     remediation_status = Column(String, default="pending")
+    resolved_at = Column(DateTime, nullable=True)           # 🆕
+    resolution_notes = Column(Text, nullable=True)           # 🆕
     
     owner = relationship("User", back_populates="incidents")
 
@@ -87,7 +89,32 @@ class EscalationTicket(Base):
     
     owner = relationship("User", backref="tickets")
 
+# 🆕 NOTIFICATION SYSTEM
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    type = Column(String)  # ticket_answered, new_incident, incident_resolved, diagnosis_complete
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=True)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    owner = relationship("User", backref="notifications")
+
+    
 Base.metadata.create_all(bind=engine)
+
+
+# Add after Base.metadata.create_all(bind=engine)
+from sqlalchemy import text
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE incidents ADD COLUMN resolved_at DATETIME"))
+        conn.execute(text("ALTER TABLE incidents ADD COLUMN resolution_notes TEXT"))
+        conn.commit()
+except:
+    pass  # Columns already exist
 
 def get_db():
     db = SessionLocal()

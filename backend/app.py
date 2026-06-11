@@ -6,13 +6,17 @@ from pydantic import BaseModel
 from typing import Optional
 import json
 import asyncio
-
 from models import User, Incident, ChatSession, ChatMessage, get_db
 from auth import router as auth_router, get_current_user
 from agents.monitor import MonitorAgent
 from agents.diagnosis import DiagnosisAgent
 from agents.remediation import RemediationAgent
 from agents.chat import ChatAgent
+from datetime import datetime, timezone
+from fastapi.responses import StreamingResponse
+import csv
+import io
+from models import EscalationTicket, Notification
 
 # 🛡️ Import the synchronized Security Guardrails
 from guardrails import guard 
@@ -102,10 +106,66 @@ async def diagnose_incident(
     )
     db.add(new_incident)
     db.commit()
+
+    # Create notification for new incident
+    create_notification(db, current_user.id, "diagnosis_complete", "Diagnosis Complete", f"Incident #{new_incident.id} has been analyzed")
+        
     db.refresh(new_incident)
     
     return {"incident_id": new_incident.id, "anomaly": anomaly, "root_cause": root_cause, "remediation": remed_plan}
 
+# 🆕 SIMILARITY SEARCH ENDPOINT
+class SimilarityRequest(BaseModel):
+    logs: list[str]
+
+@app.post("/incidents/similar")
+async def find_similar_incidents(
+    request: SimilarityRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search ChromaDB for similar past incidents based on log patterns."""
+    
+    # 🛡️ GUARDRAIL: Mask PII before searching
+    safe_logs = []
+    for log_line in request.logs:
+        masked_line, _ = guard.mask_pii(log_line)
+        safe_logs.append(masked_line)
+    
+    # Combine logs into a search query
+    search_query = " ".join(safe_logs)
+    
+    try:
+        # Query ChromaDB
+        from chroma_store import IncidentStore
+        store = IncidentStore()
+        results = store.search_similar(search_query, top_k=3)
+        
+        # Format results
+        similar_incidents = []
+        if results and results.get('ids') and results['ids'][0]:
+            for i, incident_id in enumerate(results['ids'][0]):
+                distance = results['distances'][0][i] if results.get('distances') else 1.0
+                similarity_score = max(0, min(100, (1 - distance) * 100))
+                
+                # Fetch incident details from SQLite
+                incident = db.query(Incident).filter(Incident.id == int(incident_id)).first()
+                if incident:
+                    similar_incidents.append({
+                        "incident_id": incident.id,
+                        "similarity": round(similarity_score, 1),
+                        "date": incident.timestamp.strftime("%Y-%m-%d %H:%M"),
+                        "anomaly": incident.anomaly_description[:100] + "..." if len(incident.anomaly_description) > 100 else incident.anomaly_description,
+                        "root_cause": incident.root_cause[:100] + "..." if len(incident.root_cause) > 100 else incident.root_cause,
+                        "status": incident.status
+                    })
+        
+        return {"similar_incidents": similar_incidents}
+        
+    except Exception as e:
+        print(f"Similarity search error: {e}")
+        return {"similar_incidents": []}
+        
 @app.get("/my-incidents")
 async def get_user_incidents(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     incidents = db.query(Incident).filter(Incident.user_id == current_user.id).order_by(Incident.timestamp.desc()).all()
@@ -244,6 +304,11 @@ class TicketAnswer(BaseModel): answer: str
 async def create_escalation(ticket: TicketCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     from models import EscalationTicket
     db.add(EscalationTicket(user_id=current_user.id, question=ticket.question))
+    # Notify admins about new escalation
+    admins = db.query(User).filter(User.is_admin == True).all()
+    for admin in admins:
+        create_notification(db, admin.id, "new_escalation", "New Support Ticket", f"User {current_user.email} submitted a new escalation")
+
     db.commit()
     return {"status": "success"}
 
@@ -269,7 +334,342 @@ async def answer_escalation(ticket_id: int, payload: TicketAnswer, current_user:
     ticket.answer = payload.answer
     ticket.status = "resolved"
     db.commit()
+
+        # Notify the ticket owner that their question was answered
+    ticket_owner = db.query(User).filter(User.id == ticket.user_id).first()
+    if ticket_owner:
+        create_notification(db, ticket_owner.id, "ticket_answered", "Ticket Answered", f"Admin answered your escalation ticket #{ticket_id}")
+
+    
     return {"status": "success"}
+
+
+# 🆕 INCIDENT RESOLUTION WORKFLOW
+class ResolveIncident(BaseModel):
+    resolution_notes: Optional[str] = None
+
+@app.post("/incidents/{incident_id}/resolve")
+async def resolve_incident(
+    incident_id: int,
+    payload: ResolveIncident,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark an incident as resolved with optional notes."""
+    incident = db.query(Incident).filter(
+        Incident.id == incident_id,
+        Incident.user_id == current_user.id
+    ).first()
+    
+    if not incident:
+        # Allow admin to resolve any incident
+        if current_user.is_admin:
+            incident = db.query(Incident).filter(Incident.id == incident_id).first()
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+    
+    if incident.status == "resolved":
+        raise HTTPException(status_code=400, detail="Incident already resolved")
+    
+    incident.status = "resolved"
+    incident.remediation_status = "completed"
+    incident.resolved_at = datetime.now(timezone.utc)  # 🔧 FIXED
+    
+    if payload.resolution_notes:
+        incident.resolution_notes = payload.resolution_notes
+    
+    db.commit()
+
+    # Create notification for resolution
+    create_notification(db, current_user.id, "incident_resolved", "Incident Resolved", f"Incident #{incident_id} has been marked as resolved")
+
+    # Calculate resolution time
+    resolution_time = incident.resolved_at - incident.timestamp
+    hours = resolution_time.total_seconds() / 3600
+    
+    return {
+        "status": "success",
+        "incident_id": incident.id,
+        "resolution_time_hours": round(hours, 2)
+    }
+
+
+
+@app.get("/incidents/{incident_id}/details")
+async def get_incident_details(
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get full details of a specific incident."""
+    incident = db.query(Incident).filter(
+        Incident.id == incident_id,
+        Incident.user_id == current_user.id
+    ).first()
+    
+    if not incident:
+        if current_user.is_admin:
+            incident = db.query(Incident).filter(Incident.id == incident_id).first()
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+    
+    return {
+        "id": incident.id,
+        "timestamp": incident.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "raw_logs": incident.raw_logs,
+        "anomaly": incident.anomaly_description,
+        "root_cause": incident.root_cause,
+        "remediation": incident.remediation_action,
+        "status": incident.status,
+        "resolution_notes": incident.resolution_notes or "",
+        "resolved_at": incident.resolved_at.strftime("%Y-%m-%d %H:%M:%S") if incident.resolved_at else None
+    }
+
+
+@app.get("/admin/mttr")
+async def get_mttr_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get Mean Time To Resolution metrics for admin dashboard."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    resolved_incidents = db.query(Incident).filter(
+        Incident.status == "resolved",
+        Incident.resolved_at != None
+    ).all()
+    
+    if not resolved_incidents:
+        return {
+            "average_mttr_hours": 0,
+            "total_resolved": 0,
+            "fastest_hours": 0,
+            "slowest_hours": 0
+        }
+    
+    resolution_times = []
+    for inc in resolved_incidents:
+        delta = inc.resolved_at - inc.timestamp
+        resolution_times.append(delta.total_seconds() / 3600)
+    
+    return {
+        "average_mttr_hours": round(sum(resolution_times) / len(resolution_times), 2),
+        "total_resolved": len(resolved_incidents),
+        "fastest_hours": round(min(resolution_times), 2),
+        "slowest_hours": round(max(resolution_times), 2)
+    }
+
+@app.get("/incidents/export/csv")
+async def export_incidents_csv(
+    status_filter: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export incidents as CSV file."""
+    
+    query = db.query(Incident).filter(Incident.user_id == current_user.id)
+    
+    if status_filter and status_filter != "all":
+        query = query.filter(Incident.status == status_filter)
+    
+    incidents = query.order_by(Incident.timestamp.desc()).all()
+    
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow(["ID", "Date", "Status", "Anomaly", "Root Cause", "Remediation", "Resolution Notes"])
+    
+    # Data rows
+    for inc in incidents:
+        writer.writerow([
+            inc.id,
+            inc.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            inc.status.upper(),
+            inc.anomaly_description[:200] if inc.anomaly_description else "",
+            inc.root_cause[:200] if inc.root_cause else "",
+            inc.remediation_action[:200] if inc.remediation_action else "",
+            inc.resolution_notes[:200] if inc.resolution_notes else ""
+        ])
+    
+    output.seek(0)
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=aegis_incidents_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"}
+    )
+
+@app.get("/incidents/{incident_id}/export/pdf")
+async def export_incident_pdf(
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export a single incident as a professional PDF report."""
+    
+    incident = db.query(Incident).filter(
+        Incident.id == incident_id,
+        Incident.user_id == current_user.id
+    ).first()
+    
+    if not incident:
+        if current_user.is_admin:
+            incident = db.query(Incident).filter(Incident.id == incident_id).first()
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+    
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.colors import HexColor
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib import colors
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=HexColor('#38bdf8'),
+        spaceAfter=30
+    )
+    story.append(Paragraph(f"🛡️ AegisAI Incident Report", title_style))
+    story.append(Paragraph(f"Incident #{incident.id}", styles['Heading2']))
+    story.append(Spacer(1, 20))
+    
+    # Status Badge
+    status_color = "#10b981" if incident.status == "resolved" else "#f59e0b"
+    status_text = "✅ RESOLVED" if incident.status == "resolved" else "🟢 OPEN"
+    story.append(Paragraph(f"Status: <font color='{status_color}'><b>{status_text}</b></font>", styles['Normal']))
+    story.append(Spacer(1, 10))
+    
+    # Incident Details Table
+    details_data = [
+        ["Field", "Details"],
+        ["Date/Time", incident.timestamp.strftime("%Y-%m-%d %H:%M:%S")],
+        ["Status", incident.status.upper()],
+    ]
+    
+    if incident.resolved_at:
+        details_data.append(["Resolved At", incident.resolved_at.strftime("%Y-%m-%d %H:%M:%S")])
+    
+    table = Table(details_data, colWidths=[150, 350])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1e293b')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), HexColor('#0f172a')),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, HexColor('#334155')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 20))
+    
+    # Sections
+    sections = [
+        ("📋 Raw Logs", incident.raw_logs or "No logs provided"),
+        ("🔴 Anomaly Detection", incident.anomaly_description or "Not analyzed"),
+        ("🔍 Root Cause Analysis", incident.root_cause or "Not determined"),
+        ("⚙️ Remediation Actions", incident.remediation_action or "No actions specified"),
+        ("📝 Resolution Notes", incident.resolution_notes or "No notes provided")
+    ]
+    
+    for title, content in sections:
+        story.append(Paragraph(title, styles['Heading3']))
+        story.append(Paragraph(content.replace('\n', '<br/>'), styles['Normal']))
+        story.append(Spacer(1, 15))
+    
+    # Footer
+    story.append(Spacer(1, 30))
+    story.append(Paragraph("<i>Generated by AegisAI - Enterprise SRE Platform</i>", styles['Normal']))
+    
+    doc.build(story)
+    buffer.seek(0)
+    
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=aegis_incident_{incident_id}_report.pdf"}
+    )
+
+# # 🆕 NOTIFICATION SYSTEM
+# class NotificationModel(Base):
+#     __tablename__ = "notifications"
+#     id = Column(Integer, primary_key=True, index=True)
+#     user_id = Column(Integer, ForeignKey("users.id"))
+#     type = Column(String)  # ticket_answered, new_incident, incident_resolved, diagnosis_complete
+#     title = Column(String)
+#     message = Column(Text)
+#     is_read = Column(Boolean, default=False)
+#     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# 🆕 NOTIFICATION ENDPOINTS
+@app.get("/notifications")
+async def get_notifications(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Fetch recent notifications for the current user."""
+    notifications = db.query(Notification).filter(
+        Notification.user_id == current_user.id
+    ).order_by(Notification.created_at.desc()).limit(20).all()
+    
+    unread_count = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False
+    ).count()
+    
+    return {
+        "notifications": [{
+            "id": n.id,
+            "type": n.type,
+            "title": n.title,
+            "message": n.message or "",
+            "is_read": n.is_read,
+            "created_at": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else ""
+        } for n in notifications],
+        "unread_count": unread_count
+    }
+
+@app.post("/notifications/mark-read")
+async def mark_notifications_read(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark all notifications as read."""
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False
+    ).update({"is_read": True})
+    db.commit()
+    return {"status": "success"}
+
+def create_notification(db: Session, user_id: int, notif_type: str, title: str, message: str = ""):
+    """Helper function to create notifications (call this from other endpoints)."""
+    notif = Notification(
+        user_id=user_id,
+        type=notif_type,
+        title=title,
+        message=message
+    )
+    db.add(notif)
+    db.commit()
+
+    
 
 if __name__ == "__main__":
     import uvicorn
