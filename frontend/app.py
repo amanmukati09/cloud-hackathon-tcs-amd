@@ -3,38 +3,140 @@ import requests
 import pandas as pd
 from datetime import datetime
 import re
+import time
 
 BACKEND_URL = "http://localhost:8000"
 
-# --- Advanced Pro SaaS CSS Styling ---
+# --- 🎨 FULLY FIXED SAAS CSS: Equal heights + scrollable outputs + logout padding ---
 custom_css = """
-body, .gradio-container { background-color: #0f172a !important; color: #f8fafc !important; font-family: 'Inter', system-ui, sans-serif !important; }
+/* Base styling */
+body { font-family: 'Inter', -apple-system, sans-serif !important; background-color: #0f172a !important; }
 footer { display: none !important; }
-.nav-container { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important; padding: 10px 25px !important; margin-bottom: 15px !important; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important; border-radius: 8px !important; }
-.nav-logo h1 { margin: 0 !important; background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900 !important; font-size: 1.6rem !important; letter-spacing: 1px; }
-button.profile-btn { background: transparent !important; border: 1px solid #38bdf8 !important; color: #38bdf8 !important; border-radius: 20px !important; padding: 4px 16px !important; font-weight: 600 !important; font-size: 0.9rem !important; transition: all 0.2s !important; max-width: 140px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; display: inline-block !important; }
-.profile-dropdown { position: absolute !important; right: 30px !important; top: 75px !important; z-index: 9999 !important; background: #1e293b !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 8px !important; padding: 15px !important; box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important; width: 260px !important; }
-.profile-text { color: #94a3b8 !important; font-size: 0.9rem !important; line-height: 1.6 !important; word-wrap: break-word !important; }
-button.logout-btn { background: rgba(239, 68, 68, 0.1) !important; border: 1px solid #ef4444 !important; color: #ef4444 !important; border-radius: 6px !important; padding: 6px 16px !important; margin-top: 15px !important; width: 100% !important; transition: all 0.2s !important; }
-.card-row { align-items: stretch !important; }
-.result-card { display: flex !important; flex-direction: column !important; height: 100% !important; min-height: 380px !important; border-radius: 8px !important; padding: 20px !important; background: rgba(30, 41, 59, 0.5) !important; box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important; }
-.anomaly-card { border-top: 4px solid #ef4444 !important; }
-.rc-card { border-top: 4px solid #f59e0b !important; }
-.remed-card { border-top: 4px solid #10b981 !important; }
-.table-wrap { max-height: 500px !important; overflow-y: auto !important; }
-.admin-badge { color: #f59e0b !important; font-size: 0.8em; font-weight: bold; margin-left: 5px; }
-.show-pass-check { margin-top: -10px !important; margin-bottom: 10px !important; }
-.admin-wrapper { background: rgba(245, 158, 11, 0.05) !important; border: 1px solid rgba(245, 158, 11, 0.3) !important; padding: 20px !important; border-radius: 8px !important; margin-bottom: 20px !important; }
-.align-bottom { display: flex; flex-direction: column; justify-content: flex-end; }
+
+/* Navigation */
+.nav-container { 
+    display: flex !important; 
+    align-items: center !important; 
+    justify-content: space-between !important; 
+    background: transparent !important;
+    padding: 10px 15px !important; 
+    margin-bottom: 20px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+.welcome-text h3 { margin: 0 !important; color: #f8fafc !important; font-weight: 600 !important; font-size: 1.3rem !important; }
+.logout-btn { 
+    height: 38px !important; 
+    border-radius: 8px !important; 
+    font-weight: 600 !important; 
+    transition: all 0.2s !important; 
+    padding: 0 15px !important;
+}
+
+/* Footer – tighter padding */
+.footer-container {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 12px 20px !important;
+    margin-top: 40px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: rgba(15, 23, 42, 0.4) !important;
+    border-radius: 12px 12px 0 0 !important;
+}
+.footer-logo { text-align: left !important; color: #94a3b8 !important; font-size: 0.95rem !important; font-weight: 600 !important; letter-spacing: 0.5px !important; }
+.footer-role p { text-align: right !important; margin: 0 !important; color: #38bdf8 !important; font-weight: 700 !important; font-size: 0.85rem !important; letter-spacing: 1px !important; text-transform: uppercase !important; }
+
+/* Auth box – centered with margin */
+.auth-box { 
+    max-width: 480px !important; 
+    margin: 60px auto 0 auto !important; 
+    float: none !important; 
+}
+
+/* Glass cards – flex column with strict height control */
+.glass-card { 
+    background: rgba(30, 41, 59, 0.5) !important; 
+    border: 1px solid rgba(255, 255, 255, 0.08) !important; 
+    padding: 16px !important; 
+    border-radius: 12px !important; 
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1) !important;
+    display: flex !important; 
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;  /* CRITICAL: prevents card from growing */
+}
+.push-bottom { margin-top: auto !important; }
+
+/* ========== FORCE EQUAL HEIGHT COLUMNS ========== */
+.equal-height > .gr-column {
+    display: flex !important;
+    flex-direction: column !important;
+}
+.equal-height > .gr-column > *:first-child {
+    flex: 1 1 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+/* Internal spacing */
+.glass-card > * {
+    margin-top: 0 !important;
+    margin-bottom: 0.5rem !important;
+    flex-shrink: 0 !important;  /* Don't shrink labels/headers */
+}
+.glass-card > *:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* 🔧 SCROLLABLE OUTPUT AREAS – the key fix */
+.scrollable-output {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    max-height: 100% !important;
+}
+.scrollable-output label {
+    flex-shrink: 0 !important;
+}
+.scrollable-output > div {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+}
+
+/* Make markdown/HTML in textboxes render properly */
+.gr-textbox[data-testid="textbox"] {
+    overflow-y: auto !important;
+}
+
+/* Tables scrolling */
+.table-scroll { max-height: 300px !important; overflow-y: auto !important; display: block !important; width: 100% !important; border-radius: 8px; }
+.short-table { max-height: 180px !important; overflow-y: auto !important; display: block !important; width: 100% !important; border-radius: 8px; }
+
+/* Admin panel highlight */
+.admin-panel { border: 2px solid rgba(245, 158, 11, 0.3) !important; background: rgba(245, 158, 11, 0.02) !important; border-radius: 16px !important; padding: 25px !important; margin-bottom: 25px !important; }
 """
 
+saas_theme = gr.themes.Soft(
+    primary_hue="blue",
+    neutral_hue="slate",
+    spacing_size="lg",
+    radius_size="lg"
+)
+
+# --- UTILITY & AUTO-CLEAR (unchanged) ---
 def is_valid_email(email): 
     return re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email)
 
 def is_strong_password(password):
     return re.match(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$", password)
 
-# --- Standard App APIs ---
+def clear_status():
+    time.sleep(4)
+    return gr.update(value="")
+
+# --- APIs (unchanged) ---
 def get_chat_sessions(token):
     if not token: return []
     try:
@@ -75,7 +177,6 @@ def send_chat_msg(message, session_id, history, token):
         history[-1]["content"] = f"❌ Error: {e}"
         yield message, history, session_id, gr.update()
 
-# --- New: Ticket APIs ---
 def submit_escalation(question, token):
     if not question.strip(): return gr.update(), fetch_my_tickets(token)
     try:
@@ -104,7 +205,6 @@ def load_admin_tickets(token):
 
 def answer_escalation(ticket_id, answer, token):
     if not ticket_id or not answer.strip():
-        gr.Warning("⚠️ Provide both a Ticket ID and an Answer.")
         return gr.update(), gr.update(), load_admin_tickets(token)
     try:
         res = requests.post(f"{BACKEND_URL}/admin/escalations/{int(ticket_id)}/answer", json={"answer": answer}, headers={"Authorization": f"Bearer {token}"})
@@ -115,7 +215,6 @@ def answer_escalation(ticket_id, answer, token):
     except Exception as e: gr.Warning(f"❌ Error: {e}")
     return gr.update(), gr.update(), load_admin_tickets(token)
 
-# --- Admin Data Loaders ---
 def load_admin_data(token):
     if not token: return 0, 0, 0, pd.DataFrame()
     try:
@@ -154,11 +253,10 @@ def inspect_user_data(token, target_id):
         return df_inc, df_chat, gr.update(value=f"✅ **Loaded Activity Log for User ID: {int(target_id)}**")
     except Exception as e: return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"❌ **Connection Error:** {e}")
 
-# --- Auth APIs ---
 def api_login(email, password):
     if not email.strip() or not password.strip():
         gr.Warning("⚠️ Enter email and password.")
-        return "", gr.update(visible=True), gr.update(visible=False), "👤 Profile", "", False, gr.update(visible=False), gr.update(), gr.update(visible=False)
+        return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
     try:
         res = requests.post(f"{BACKEND_URL}/auth/login", json={"email": email, "password": password})
         if res.status_code == 200:
@@ -166,31 +264,31 @@ def api_login(email, password):
             token = data.get("access_token")
             is_admin = bool(data.get("is_admin", False)) 
             raw_name = email.split('@')[0].capitalize()
-            disp = (raw_name[:10] + '..') if len(raw_name) > 10 else raw_name
-            role_badge = "<span class='admin-badge'>[ROOT]</span>" if is_admin else ""
-            html = f"<div class='profile-text'><b>User:</b> {raw_name} {role_badge}<br><b>Email:</b> {email}</div>"
-            gr.Info(f"✅ Welcome back, {disp}!")
-            return token, gr.update(visible=False), gr.update(visible=True), gr.update(value=f"👤 {disp}"), gr.update(value=html), False, gr.update(visible=False), gr.update(choices=get_chat_sessions(token)), gr.update(visible=is_admin)
+            welcome_str = f"### 👋 Hello, {raw_name}"
+            role_str = "🛡️ Root Admin" if is_admin else "👤 Standard User"
+            gr.Info(f"✅ Welcome back, {raw_name}!")
+            return token, gr.update(visible=False), gr.update(visible=True), welcome_str, role_str, gr.update(visible=is_admin)
         else: gr.Warning(f"❌ Login Denied: {res.json().get('detail')}")
     except Exception as e: gr.Warning(f"❌ Connection Error: {e}")
-    return "", gr.update(visible=True), gr.update(visible=False), "👤 Profile", "", False, gr.update(visible=False), gr.update(), gr.update(visible=False)
+    return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
 
 def api_register(email, password, name):
     name, email = name.strip(), email.strip()
     if not name or not is_valid_email(email) or not is_strong_password(password):
         gr.Warning("⚠️ Please fix validation errors.")
-        return "", gr.update(visible=True), gr.update(visible=False), "👤 Profile", "", False, gr.update(visible=False), gr.update(), gr.update(visible=False)
+        return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
     try:
         res = requests.post(f"{BACKEND_URL}/auth/register", json={"email": email, "password": password, "full_name": name})
         if res.status_code == 200:
             token = res.json().get("access_token")
             raw_name = name.split(' ')[0].capitalize()
-            html = f"<div class='profile-text'><b>User:</b> {name}<br><b>Email:</b> {email}</div>"
+            welcome_str = f"### 👋 Hello, {raw_name}"
+            role_str = "👤 Standard User"
             gr.Info("✅ Registration Successful!")
-            return token, gr.update(visible=False), gr.update(visible=True), gr.update(value=f"👤 {raw_name[:10]}"), gr.update(value=html), False, gr.update(visible=False), gr.update(choices=[]), gr.update(visible=False)
+            return token, gr.update(visible=False), gr.update(visible=True), welcome_str, role_str, gr.update(visible=False)
         else: gr.Warning(f"❌ Registration Failed: {res.json().get('detail')}")
     except Exception as e: gr.Warning(f"❌ Connection Error: {e}")
-    return "", gr.update(visible=True), gr.update(visible=False), "👤 Profile", "", False, gr.update(visible=False), gr.update(), gr.update(visible=False)
+    return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False)
 
 def fetch_history(token):
     try:
@@ -202,165 +300,371 @@ def fetch_history(token):
     except: pass
     return pd.DataFrame()
 
+# --- 🔧 NEW: Clean HTML formatting (no raw asterisks, proper rendering) ---
+def clean_markdown(text):
+    """Remove raw markdown asterisks that shouldn't be shown"""
+    # Don't touch HTML tags, but clean up orphaned ** markers
+    import re
+    # Remove ** that aren't part of HTML
+    text = re.sub(r'(?<!<[^>]*)\*\*(?!>)', '', text)
+    return text
+
+def format_diagnosis(data):
+    """
+    Safely extract and color-code anomaly, root cause, and remediation.
+    Returns clean HTML that renders properly in Gradio Markdown components.
+    """
+    # --- Anomaly Section ---
+    anomaly = data.get("anomaly", {})
+    if isinstance(anomaly, dict):
+        anomaly_type = anomaly.get("anomaly_type", "Unknown")
+        severity = anomaly.get("severity", "UNKNOWN").upper()
+        affected = anomaly.get("affected_component", "Unknown")
+        description = anomaly.get("description", "No description provided.")
+    else:
+        anomaly_type = "Unknown"
+        severity = "HIGH"
+        affected = "Unknown"
+        description = str(anomaly) if anomaly else "No description provided."
+
+    # Severity color
+    severity_colors = {
+        "CRITICAL": "#dc2626",
+        "HIGH": "#ef4444",
+        "MEDIUM": "#f59e0b",
+        "LOW": "#10b981",
+        "UNKNOWN": "#6b7280"
+    }
+    severity_color = severity_colors.get(severity, "#6b7280")
+
+    anomaly_html = f"""
+<div style="margin-bottom: 8px;">
+    <span style="color: {severity_color}; font-weight: bold; font-size: 1.1em;">● {severity}</span>
+    <span style="margin-left: 8px; font-weight: 600;">Type:</span> <code>{anomaly_type}</code>
+</div>
+<div style="margin-bottom: 8px;">
+    <span style="font-weight: 600;">Component:</span> {affected}
+</div>
+<div>
+    <span style="font-weight: 600;">Details:</span> {description}
+</div>
+"""
+
+    # --- Root Cause Section ---
+    root_cause = data.get("root_cause", {})
+    if isinstance(root_cause, dict):
+        cause_text = root_cause.get("root_cause", "Not determined")
+        confidence = root_cause.get("confidence", 0.0)
+        evidence = root_cause.get("evidence", [])
+        factors = root_cause.get("contributing_factors", [])
+    else:
+        cause_text = str(root_cause) if root_cause else "Not determined"
+        confidence = 0.0
+        evidence = []
+        factors = []
+
+    # Confidence color
+    if confidence >= 0.7:
+        conf_color = "#10b981"
+        conf_label = "High"
+    elif confidence >= 0.4:
+        conf_color = "#f59e0b"
+        conf_label = "Medium"
+    else:
+        conf_color = "#ef4444"
+        conf_label = "Low"
+
+    rc_html = f"""
+<div style="margin-bottom: 8px;">
+    <span style="font-weight: 600;">Cause:</span> {cause_text}
+</div>
+<div style="margin-bottom: 8px;">
+    <span style="font-weight: 600;">Confidence:</span> 
+    <span style="color: {conf_color}; font-weight: bold;">{confidence:.0%} ({conf_label})</span>
+</div>
+"""
+    if evidence:
+        rc_html += '<div style="margin-bottom: 8px;"><span style="font-weight: 600;">Evidence:</span><ul style="margin: 4px 0; padding-left: 20px;">'
+        for e in evidence:
+            rc_html += f"<li>{e}</li>"
+        rc_html += "</ul></div>"
+
+    if factors:
+        rc_html += '<div><span style="font-weight: 600;">Contributing Factors:</span><ul style="margin: 4px 0; padding-left: 20px;">'
+        for f in factors:
+            rc_html += f"<li>{f}</li>"
+        rc_html += "</ul></div>"
+
+    # --- Remediation Section ---
+    remediation = data.get("remediation", {})
+    if isinstance(remediation, dict):
+        immediate = remediation.get("immediate_actions", [])
+        automated = remediation.get("automated_actions", [])
+        escalation = remediation.get("escalation_needed", False)
+        recovery = remediation.get("estimated_recovery_time", "Unknown")
+        prevention = remediation.get("prevention_measures", [])
+    else:
+        immediate = [str(remediation)] if remediation else []
+        automated = []
+        escalation = True
+        recovery = "Unknown"
+        prevention = []
+
+    rem_html = ""
+    if immediate:
+        rem_html += '<div style="margin-bottom: 8px;"><span style="font-weight: 600;">⚡ Immediate Actions:</span><ul style="margin: 4px 0; padding-left: 20px;">'
+        for a in immediate:
+            rem_html += f"<li>{a}</li>"
+        rem_html += "</ul></div>"
+
+    if automated:
+        rem_html += '<div style="margin-bottom: 8px;"><span style="font-weight: 600;">🤖 Automated Actions:</span><ul style="margin: 4px 0; padding-left: 20px;">'
+        for a in automated:
+            if isinstance(a, dict):
+                action = a.get('action', str(a))
+                risk = a.get('risk_level', 'UNKNOWN')
+                risk_color = "#ef4444" if risk == "HIGH" else "#f59e0b" if risk == "MEDIUM" else "#10b981"
+                rem_html += f'<li>{action} <span style="color: {risk_color}; font-size: 0.85em;">[Risk: {risk}]</span></li>'
+            else:
+                rem_html += f"<li>{a}</li>"
+        rem_html += "</ul></div>"
+
+    esc_color = "#ef4444" if escalation else "#10b981"
+    esc_text = "⚠️ YES" if escalation else "✅ NO"
+    rem_html += f"""
+<div style="margin-bottom: 8px;">
+    <span style="font-weight: 600;">Escalation Needed:</span> 
+    <span style="color: {esc_color}; font-weight: bold;">{esc_text}</span>
+</div>
+<div style="margin-bottom: 8px;">
+    <span style="font-weight: 600;">Estimated Recovery:</span> {recovery}
+</div>
+"""
+    if prevention:
+        rem_html += '<div><span style="font-weight: 600;">🛡️ Prevention:</span><ul style="margin: 4px 0; padding-left: 20px;">'
+        for p in prevention:
+            rem_html += f"<li>{p}</li>"
+        rem_html += "</ul></div>"
+
+    return anomaly_html, rc_html, rem_html
+
+# --- DIAGNOSE FUNCTION – now uses Markdown components for proper HTML rendering ---
 def diagnose_logs(logs_text, token):
-    if not token or not logs_text.strip(): return gr.update(), gr.update(), gr.update(), gr.update()
+    if not token or not logs_text.strip(): 
+        return gr.update(), gr.update(), gr.update(), gr.update()
     try:
-        res = requests.post(f"{BACKEND_URL}/diagnose", json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]}, headers={"Authorization": f"Bearer {token}"})
+        res = requests.post(
+            f"{BACKEND_URL}/diagnose", 
+            json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]}, 
+            headers={"Authorization": f"Bearer {token}"}
+        )
         if res.status_code == 200:
             data = res.json()
-            if not data.get("anomaly_detected", True): return gr.update(value="✅ System Normal"), gr.update(value="N/A"), gr.update(value="N/A"), fetch_history(token)
+            if not data.get("anomaly_detected", True):
+                return (
+                    gr.update(value="### ✅ System Normal\n\nNo anomalies detected in the provided logs."),
+                    gr.update(value="*N/A*"),
+                    gr.update(value="*N/A*"),
+                    fetch_history(token)
+                )
             gr.Info("⚡ Analysis Complete!")
-            return gr.update(value=f"**Type:** `{data.get('anomaly',{}).get('anomaly_type','N/A')}`\n\n**Description:** {data.get('anomaly',{}).get('description','N/A')}"), gr.update(value=f"**Cause:** {data.get('root_cause',{}).get('root_cause','N/A')}"), gr.update(value=f"**Immediate Actions:** {', '.join(data.get('remediation',{}).get('immediate_actions',[]))}"), fetch_history(token)
-    except: pass
-    return gr.update(value="Error"), gr.update(value="Error"), gr.update(value="Error"), gr.update()
+            anomaly, root_cause, remediation = format_diagnosis(data)
+            return (
+                gr.update(value=anomaly),
+                gr.update(value=root_cause),
+                gr.update(value=remediation),
+                fetch_history(token)
+            )
+        else:
+            error_msg = f"❌ Backend error: {res.status_code}"
+            return gr.update(value=error_msg), gr.update(value=error_msg), gr.update(value=error_msg), gr.update()
+    except Exception as e:
+        error_msg = f"❌ Connection Error: {str(e)}"
+        return gr.update(value=error_msg), gr.update(value=error_msg), gr.update(value=error_msg), gr.update()
 
 def logout():
     gr.Info("🔒 Logged out safely.")
     return (
-        "", gr.update(visible=True), gr.update(visible=False), "👤 Profile", "", False, gr.update(visible=False), gr.update(choices=[]), gr.update(visible=False),
+        "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(choices=[]), gr.update(visible=False),
         gr.update(value=""), gr.update(value=""), gr.update(value=False), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=False),
         gr.update(value=None), pd.DataFrame(), pd.DataFrame(), gr.update(value=""),
         gr.update(value=""), pd.DataFrame(), gr.update(value=None), gr.update(value=""), pd.DataFrame()
     )
 
-# --- UI Layout ---
+# --- UI LAYOUT ---
 with gr.Blocks(title="AegisAI") as demo:
-    session_token, current_chat_id, dropdown_visible = gr.State(""), gr.State(None), gr.State(False)
+    session_token, current_chat_id = gr.State(""), gr.State(None)
     
+    # --- AUTH VIEW ---
     with gr.Column(visible=True) as auth_view:
-        gr.Markdown("<br><br><center><h2>🔐 AegisAI Portal</h2></center>")
+        gr.Markdown("<center><h1 style='font-size: 2.5rem; margin-bottom: 20px; color: #38bdf8;'>🛡️ AegisAI Portal</h1></center>")
         with gr.Row():
-            with gr.Column(scale=1): pass
-            with gr.Column(scale=2):
+            with gr.Column(elem_classes="auth-box glass-card"):
                 with gr.Tab("Login"):
-                    log_email = gr.Textbox(label="Email")
+                    log_email = gr.Textbox(label="Email Address", placeholder="admin@example.com")
                     log_pass = gr.Textbox(label="Password", type="password", elem_id="log_pass_input")
-                    log_show_pass = gr.Checkbox(label="👁️ Show Password", elem_classes="show-pass-check")
-                    login_btn = gr.Button("Login 🚀", variant="primary")
-                with gr.Tab("Register"):
-                    reg_name = gr.Textbox(label="Full Name")
-                    reg_email = gr.Textbox(label="Email")
+                    log_show_pass = gr.Checkbox(label="👁️ Show Password")
+                    login_btn = gr.Button("Login to Dashboard 🚀", variant="primary", elem_classes="push-bottom")
+                with gr.Tab("Register New Account"):
+                    reg_name = gr.Textbox(label="Full Name", placeholder="Jane Doe")
+                    reg_email = gr.Textbox(label="Email Address", placeholder="user@example.com")
                     reg_pass = gr.Textbox(label="Password", type="password", elem_id="reg_pass_input")
-                    reg_show_pass = gr.Checkbox(label="👁️ Show Password", elem_classes="show-pass-check")
-                    register_btn = gr.Button("Sign Up 📝", variant="primary")
-            with gr.Column(scale=1): pass
+                    reg_show_pass = gr.Checkbox(label="👁️ Show Password")
+                    register_btn = gr.Button("Secure Sign Up 📝", variant="primary", elem_classes="push-bottom")
 
+    # --- APP VIEW ---
     with gr.Column(visible=False) as app_view:
+        
         with gr.Row(elem_classes="nav-container"):
-            gr.Markdown("<h1>🛡️ AegisAI</h1>", elem_classes="nav-logo")
-            nav_profile_btn = gr.Button("👤 Profile", elem_classes="profile-btn")
-        with gr.Column(visible=False, elem_classes="profile-dropdown") as profile_panel:
-            profile_info = gr.HTML("")
-            logout_btn = gr.Button("Logout", elem_classes="logout-btn")
+            with gr.Column(scale=1):
+                welcome_text = gr.Markdown("", elem_classes="welcome-text")
+            with gr.Column(scale=0, min_width=120):
+                logout_btn = gr.Button("Logout 🔒", variant="stop", elem_classes="logout-btn")
             
         with gr.Column(visible=False) as admin_dashboard_view:
-            with gr.Column(elem_classes="admin-wrapper"):
-                gr.Markdown("### 🎛️ Root Administrator Dashboard")
-                with gr.Row():
-                    refresh_admin_btn = gr.Button("🔄 Sync Telemetry", variant="primary", size="sm")
+            with gr.Column(elem_classes="admin-panel"):
+                gr.Markdown("## 🎛️ Root Administrator Dashboard")
                 with gr.Row():
                     metric_users = gr.Number(label="Total Registered Users", interactive=False)
                     metric_incidents = gr.Number(label="Incidents Analyzed", interactive=False)
                     metric_chats = gr.Number(label="Active AI Sessions", interactive=False)
                 
-                gr.Markdown("### 👥 User Directory & Access Management")
-                admin_users_table = gr.Dataframe(interactive=False, wrap=True)
-                with gr.Row():
-                    with gr.Column(scale=3):
+                gr.HTML("<hr style='border-color: rgba(255,255,255,0.1); margin: 15px 0;'>")
+                
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=3, elem_classes="glass-card"):
+                        gr.Markdown("### 👥 User Directory")
+                        admin_users_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### ⚙️ Account Controls")
+                        refresh_admin_btn = gr.Button("🔄 Sync Directory", variant="secondary")
                         delete_user_input = gr.Number(label="Target User ID", precision=0)
-                    with gr.Column(scale=1, elem_classes="align-bottom"):
-                        delete_user_btn = gr.Button("🚨 Terminate Account", variant="stop")
-                admin_status_msg = gr.Markdown("")
+                        delete_user_btn = gr.Button("🚨 Terminate Account", variant="stop", elem_classes="push-bottom")
+                        admin_status_msg = gr.Markdown("")
 
-                gr.Markdown("<br>---<br>### 🔍 Deep-Dive User Inspection")
-                with gr.Row():
-                    with gr.Column(scale=3):
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=3, elem_classes="glass-card"):
+                        gr.Markdown("### 🔍 Deep-Dive User Inspection")
+                        inspect_incidents_table = gr.Dataframe(label="Raw Incident Submissions", interactive=False, wrap=True, elem_classes="short-table")
+                        inspect_chats_table = gr.Dataframe(label="Copilot Chat Transcripts", interactive=False, wrap=True, elem_classes="short-table")
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### ⚙️ Fetch Telemetry")
                         inspect_user_input = gr.Number(label="User ID to Inspect", precision=0)
-                    with gr.Column(scale=1, elem_classes="align-bottom"):
-                        inspect_btn = gr.Button("Fetch User History", variant="secondary")
-                inspect_status_msg = gr.Markdown("")
-                inspect_incidents_table = gr.Dataframe(label="Raw Incident Submissions", interactive=False, wrap=True)
-                inspect_chats_table = gr.Dataframe(label="Copilot Chat Transcripts", interactive=False, wrap=True)
+                        inspect_btn = gr.Button("Fetch User History", variant="primary", elem_classes="push-bottom")
+                        inspect_status_msg = gr.Markdown("")
 
-                # --- ADMIN: ESCALATION MANAGEMENT ---
-                gr.Markdown("<br>---<br>### 🎟️ Escalation & QA Tickets")
-                admin_tickets_table = gr.Dataframe(interactive=False, wrap=True)
-                with gr.Row():
-                    with gr.Column(scale=1):
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=3, elem_classes="glass-card"):
+                        gr.Markdown("### 🎟️ Escalation & QA Tickets")
+                        admin_tickets_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### ⚙️ Resolve Tickets")
+                        refresh_admin_tickets_btn = gr.Button("🔄 Sync Tickets", variant="secondary")
                         answer_ticket_id_input = gr.Number(label="Ticket ID", precision=0)
-                    with gr.Column(scale=3):
                         answer_ticket_input = gr.Textbox(label="Your Answer", lines=2)
-                    with gr.Column(scale=1, elem_classes="align-bottom"):
-                        answer_ticket_btn = gr.Button("Submit Answer ✅", variant="primary")
-            
+                        answer_ticket_btn = gr.Button("Submit Answer ✅", variant="primary", elem_classes="push-bottom")
+
+        # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
             with gr.Tab("Live Diagnosis", id="tab_diag"):
-                gr.Markdown("### 📡 System Telemetry Input")
-                logs_input = gr.Textbox(label="System Logs", lines=6, placeholder="Paste logs...")
-                with gr.Row():
-                    diagnose_btn, discuss_btn, clear_btn = gr.Button("Analyze ⚡", variant="primary"), gr.Button("Discuss 💬", variant="secondary"), gr.Button("Clear 🗑️")
-                gr.Examples(examples=[
-                    "[ERROR] nginx worker crashed\n[WARNING] memory: 90%\n[ERROR] cpu: 95%",
-                    "[INFO] database pool active\n[CRITICAL] connection timeout\n[CRITICAL] query failed"
-                ], inputs=logs_input)
-                gr.Markdown("<br>\n\n### 📊 Diagnostics Report")
-                with gr.Row(elem_classes="card-row"):
-                    with gr.Column(elem_classes="result-card anomaly-card"):
-                        gr.Markdown("### 🔴 ANOMALY DETECTED")
-                        anomaly_out = gr.Markdown("Waiting...")
-                    with gr.Column(elem_classes="result-card rc-card"):
-                        gr.Markdown("### 🔍 ROOT CAUSE")
-                        rc_out = gr.Markdown("Waiting...")
-                    with gr.Column(elem_classes="result-card remed-card"):
-                        gr.Markdown("### ⚙️ REMEDIATION")
-                        remed_out = gr.Markdown("Waiting...")
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### 📡 System Telemetry Input")
+                        logs_input = gr.Textbox(label="System Logs", lines=9, placeholder="Paste your server or application logs here...")
+                        with gr.Row():
+                            diagnose_btn = gr.Button("Analyze ⚡", variant="primary")
+                            discuss_btn = gr.Button("Discuss 💬", variant="secondary")
+                            clear_btn = gr.Button("Clear 🗑️", variant="stop")
+                        gr.Examples(examples=[
+                            ["[ERROR] nginx worker crashed\n[WARNING] memory: 90%\n[ERROR] cpu: 95%"],
+                            ["[INFO] database pool active\n[CRITICAL] connection timeout\n[CRITICAL] query failed"]
+                        ], inputs=logs_input)
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### 📊 Diagnostics Report")
+                        # 🔧 CHANGED: Textbox → Markdown for proper HTML rendering
+                        anomaly_out = gr.Markdown(
+                            value="*Waiting for log analysis...*",
+                            label="🔴 ANOMALY DETECTED",
+                            elem_classes="scrollable-output"
+                        )
+                        rc_out = gr.Markdown(
+                            value="*Waiting for log analysis...*",
+                            label="🔍 ROOT CAUSE",
+                            elem_classes="scrollable-output"
+                        )
+                        remed_out = gr.Markdown(
+                            value="*Waiting for log analysis...*",
+                            label="⚙️ REMEDIATION",
+                            elem_classes="scrollable-output"
+                        )
                         
             with gr.Tab("💬 AI Copilot", id="tab_chat"):
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        gr.Markdown("### Chat History")
-                        new_chat_btn, chat_session_dropdown, refresh_chat_btn = gr.Button("➕ New Chat", variant="primary", size="sm"), gr.Dropdown(label="Past Chats", choices=[], interactive=True), gr.Button("🔄 Refresh", size="sm")
-                    with gr.Column(scale=3):
-                        chatbot_ui = gr.Chatbot(label="Copilot", height=450)
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### Session Management")
+                        chat_session_dropdown = gr.Dropdown(label="Load Past Chat", choices=[], interactive=True, allow_custom_value=True)
+                        refresh_chat_btn = gr.Button("🔄 Refresh List", variant="secondary")
+                        new_chat_btn = gr.Button("➕ Start New Chat", variant="primary", elem_classes="push-bottom")
+                        
+                    with gr.Column(scale=3, elem_classes="glass-card"):
+                        chatbot_ui = gr.Chatbot(label="Aegis AI Copilot", height=400)
                         with gr.Row():
-                            chat_input, chat_send_btn = gr.Textbox(show_label=False, placeholder="Ask...", scale=4), gr.Button("Send 🚀", scale=1)
+                            chat_input = gr.Textbox(show_label=False, placeholder="Ask the Copilot a question...", scale=4)
+                            chat_send_btn = gr.Button("Send 🚀", variant="primary", scale=1)
                             
             with gr.Tab("My Incident History"):
-                refresh_btn, history_table = gr.Button("Refresh 🔄", size="sm"), gr.Dataframe(interactive=False, wrap=True)
+                with gr.Column(elem_classes="glass-card"):
+                    with gr.Row():
+                        gr.Markdown("### Your Processed Incidents", scale=4)
+                        refresh_btn = gr.Button("Refresh Data 🔄", variant="secondary", scale=1)
+                    history_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
 
-            # --- USER: QA SUPPORT TAB ---
             with gr.Tab("🆘 Support Tickets", id="tab_support"):
-                gr.Markdown("### Ask an Admin / QA")
-                gr.Markdown("If the Copilot cannot resolve your issue, escalate it directly to our Root Admin team below.")
-                with gr.Row():
-                    with gr.Column(scale=3):
-                        ticket_question_input = gr.Textbox(show_label=False, placeholder="Describe your issue or ask a question...")
-                    with gr.Column(scale=1, elem_classes="align-bottom"):
-                        submit_ticket_btn = gr.Button("Submit Ticket 📨", variant="primary")
-                gr.Markdown("### Your Escalation History")        
-                my_tickets_table = gr.Dataframe(interactive=False, wrap=True)
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### Ask an Admin / QA")
+                        gr.Markdown("If the Copilot cannot resolve your issue, escalate it directly to our Root Admin team.")
+                        ticket_question_input = gr.Textbox(label="Your Question or Issue", placeholder="Describe your issue clearly...", lines=6)
+                        submit_ticket_btn = gr.Button("Submit Ticket 📨", variant="primary", elem_classes="push-bottom")
+                    
+                    with gr.Column(scale=2, elem_classes="glass-card"):
+                        with gr.Row():
+                            gr.Markdown("### Your Escalation History", scale=4) 
+                            refresh_my_tickets_btn = gr.Button("🔄 Sync Status", variant="secondary", scale=1)
+                        my_tickets_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
 
-    # --- WIRING ---
+        # Footer
+        with gr.Row(elem_classes="footer-container"):
+            with gr.Column(scale=1):
+                gr.Markdown("🛡️ **Aegis AI**", elem_classes="footer-logo")
+            with gr.Column(scale=1):
+                role_text = gr.Markdown("", elem_classes="footer-role")
+
+    # --- EVENT WIRING ---
     log_show_pass.change(fn=None, inputs=[log_show_pass], js="(s) => { const el = document.querySelector('#log_pass_input input'); if(el) el.type = s ? 'text' : 'password'; return []; }")
     reg_show_pass.change(fn=None, inputs=[reg_show_pass], js="(s) => { const el = document.querySelector('#reg_pass_input input'); if(el) el.type = s ? 'text' : 'password'; return []; }")
     
-    nav_profile_btn.click(fn=lambda s: (not s, gr.update(visible=not s)), inputs=[dropdown_visible], outputs=[dropdown_visible, profile_panel], queue=False)
-    clear_btn.click(fn=lambda: ("", "Waiting...", "Waiting...", "Waiting..."), outputs=[logs_input, anomaly_out, rc_out, remed_out], queue=False)
+    clear_btn.click(
+        fn=lambda: ("", "*Waiting for log analysis...*", "*Waiting for log analysis...*", "*Waiting for log analysis...*"), 
+        outputs=[logs_input, anomaly_out, rc_out, remed_out], 
+        queue=False
+    )
 
     login_btn.click(
-        fn=api_login, inputs=[log_email, log_pass], outputs=[session_token, auth_view, app_view, nav_profile_btn, profile_info, dropdown_visible, profile_panel, chat_session_dropdown, admin_dashboard_view]
+        fn=api_login, inputs=[log_email, log_pass], outputs=[session_token, auth_view, app_view, welcome_text, role_text, admin_dashboard_view]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
     ).then(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table]
     ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table]
-    ).then(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table])
+    ).then(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table]
+    ).then(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
     
     register_btn.click(
-        fn=api_register, inputs=[reg_email, reg_pass, reg_name], outputs=[session_token, auth_view, app_view, nav_profile_btn, profile_info, dropdown_visible, profile_panel, chat_session_dropdown, admin_dashboard_view]
+        fn=api_register, inputs=[reg_email, reg_pass, reg_name], outputs=[session_token, auth_view, app_view, welcome_text, role_text, admin_dashboard_view]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
     ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table])
     
     logout_btn.click(fn=logout, outputs=[
-        session_token, auth_view, app_view, nav_profile_btn, profile_info, dropdown_visible, profile_panel, chat_session_dropdown, admin_dashboard_view,
+        session_token, auth_view, app_view, welcome_text, role_text, chat_session_dropdown, admin_dashboard_view,
         log_email, log_pass, log_show_pass, reg_name, reg_email, reg_pass, reg_show_pass,
         inspect_user_input, inspect_incidents_table, inspect_chats_table, inspect_status_msg,
         ticket_question_input, my_tickets_table, answer_ticket_id_input, answer_ticket_input, admin_tickets_table
@@ -368,7 +672,20 @@ with gr.Blocks(title="AegisAI") as demo:
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input, session_token], outputs=[anomaly_out, rc_out, remed_out, history_table])
     refresh_btn.click(fn=fetch_history, inputs=[session_token], outputs=[history_table])
-    discuss_btn.click(fn=lambda l, a: (gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"), [], None, gr.update(value=None), gr.update(selected="tab_chat")) if l.strip() else (gr.update(), gr.update(), gr.update(), gr.update(), gr.update()), inputs=[logs_input, anomaly_out], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager], queue=False)
+    discuss_btn.click(
+        fn=lambda l, a: (
+            gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"), 
+            [], 
+            None, 
+            gr.update(value=None), 
+            gr.update(selected="tab_chat")
+        ) if l.strip() else (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        ), 
+        inputs=[logs_input, anomaly_out], 
+        outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager], 
+        queue=False
+    )
     chat_send_btn.click(fn=send_chat_msg, inputs=[chat_input, current_chat_id, chatbot_ui, session_token], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown])
     chat_input.submit(fn=send_chat_msg, inputs=[chat_input, current_chat_id, chatbot_ui, session_token], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown])
     new_chat_btn.click(fn=lambda: ("", [], None, gr.update(value=None)), outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown], queue=False)
@@ -376,12 +693,16 @@ with gr.Blocks(title="AegisAI") as demo:
     refresh_chat_btn.click(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
 
     refresh_admin_btn.click(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table])
-    delete_user_btn.click(fn=purge_user, inputs=[session_token, delete_user_input], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table, admin_status_msg])
-    inspect_btn.click(fn=inspect_user_data, inputs=[session_token, inspect_user_input], outputs=[inspect_incidents_table, inspect_chats_table, inspect_status_msg])
-    
-    # QA Ticketing Wiring
+    delete_user_btn.click(
+        fn=purge_user, inputs=[session_token, delete_user_input], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table, admin_status_msg]
+    ).then(fn=clear_status, outputs=[admin_status_msg])
+    inspect_btn.click(
+        fn=inspect_user_data, inputs=[session_token, inspect_user_input], outputs=[inspect_incidents_table, inspect_chats_table, inspect_status_msg]
+    ).then(fn=clear_status, outputs=[inspect_status_msg])
+    refresh_admin_tickets_btn.click(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table])
     submit_ticket_btn.click(fn=submit_escalation, inputs=[ticket_question_input, session_token], outputs=[ticket_question_input, my_tickets_table])
+    refresh_my_tickets_btn.click(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table])
     answer_ticket_btn.click(fn=answer_escalation, inputs=[answer_ticket_id_input, answer_ticket_input, session_token], outputs=[answer_ticket_id_input, answer_ticket_input, admin_tickets_table])
 
 if __name__ == "__main__":
-    demo.queue().launch(share=True, server_name="0.0.0.0", server_port=7860, css=custom_css)
+    demo.queue().launch(share=True, server_name="0.0.0.0", server_port=7860, theme=saas_theme, css=custom_css)
