@@ -16,7 +16,11 @@ from datetime import datetime, timezone
 from fastapi.responses import StreamingResponse
 import csv
 import io
+import re
 from models import EscalationTicket, Notification
+from fastapi import UploadFile, File
+from typing import List
+
 
 # 🛡️ Import the synchronized Security Guardrails
 from guardrails import guard 
@@ -114,6 +118,54 @@ async def diagnose_incident(
     
     return {"incident_id": new_incident.id, "anomaly": anomaly, "root_cause": root_cause, "remediation": remed_plan}
 
+
+
+@app.post("/upload-logs")
+async def upload_log_files(
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload log files and return parsed contents."""
+    
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    all_logs = []
+    file_names = []
+    total_size = 0
+    
+    for file in files:
+        # Validate file extension
+        if not file.filename.endswith(('.log', '.txt', '.out', '.LOG', '.TXT')):
+            continue
+        
+        # Read file content
+        content = await file.read()
+        total_size += len(content)
+        
+        # Limit total upload to 10MB
+        if total_size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Total file size exceeds 10MB limit")
+        
+        # Decode and split into lines
+        try:
+            text = content.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                text = content.decode('latin-1')
+            except:
+                text = content.decode('utf-8', errors='ignore')
+        
+        lines = text.split('\n')
+        all_logs.extend([line.strip() for line in lines if line.strip()])
+        file_names.append(file.filename)
+    
+    return {
+        "file_names": file_names,
+        "total_lines": len(all_logs),
+        "total_size_kb": round(total_size / 1024, 2),
+        "logs": all_logs[:5000]  # Limit to 5000 lines for preview
+    }
 # 🆕 SIMILARITY SEARCH ENDPOINT
 class SimilarityRequest(BaseModel):
     logs: list[str]
@@ -189,7 +241,24 @@ async def send_chat_message(req: ChatRequest, current_user: User = Depends(get_c
 
     session_id = req.session_id
     if not session_id:
-        title = safe_message[:30] + "..." if len(safe_message) > 30 else safe_message
+        # Create a smart title from the first message
+        title = safe_message[:50]
+        # Try to extract a meaningful title
+        if "error" in safe_message.lower():
+            title = "🐛 Error Discussion"
+        elif "anomaly" in safe_message.lower() or "diagnos" in safe_message.lower():
+            title = "🔍 Incident Analysis"
+        elif "hello" in safe_message.lower() or "hi" in safe_message.lower():
+            title = "👋 General Chat"
+        elif "log" in safe_message.lower():
+            title = "📋 Log Analysis"
+        elif "help" in safe_message.lower():
+            title = "🆘 Support Request"
+        else:
+            # Use first 40 chars of cleaned message
+            title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
+
+    
         new_session = ChatSession(user_id=current_user.id, title=title)
         db.add(new_session)
         db.commit()
@@ -222,10 +291,23 @@ async def send_chat_message(req: ChatRequest, current_user: User = Depends(get_c
 
     return {"session_id": session_id, "history": chat_format}
 
+
 @app.get("/chat/sessions")
 async def get_chat_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     sessions = db.query(ChatSession).filter(ChatSession.user_id == current_user.id).order_by(ChatSession.created_at.desc()).all()
-    return {str(s.id): f"ID: {s.id} | {s.title}" for s in sessions}
+    # Return clean format without doubling
+    result = {}
+    for s in sessions:
+        sid = str(s.id)
+        title = s.title or "Untitled"
+        # Clean up any newlines or extra spaces in title
+        title = title.replace('\n', ' ').strip()
+        if len(title) > 50:
+            title = title[:47] + "..."
+        result[sid] = title
+    return result
+    
+
 
 @app.get("/chat/sessions/{session_id}")
 async def get_chat_history(session_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -237,6 +319,55 @@ async def get_chat_history(session_id: int, current_user: User = Depends(get_cur
         if m.role == "user": temp_user = m.content
         else: chat_format.append([temp_user, m.content]); temp_user = ""
     return chat_format
+
+@app.get("/chat/search")
+async def search_chat_history(
+    query: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search across all chat messages for a keyword."""
+    if not query or len(query.strip()) < 2:
+        return {"results": []}
+    
+    search_term = f"%{query.strip()}%"
+    
+    # Search in user's chat messages
+    messages = db.query(ChatMessage).join(ChatSession).filter(
+        ChatSession.user_id == current_user.id,
+        ChatMessage.content.ilike(search_term)
+    ).order_by(ChatMessage.timestamp.desc()).limit(20).all()
+    
+    results = []
+    for msg in messages:
+        # Get session title
+        session = db.query(ChatSession).filter(ChatSession.id == msg.session_id).first()
+        session_title = session.title if session else "Unknown Session"
+        
+        # Get a snippet around the match
+        content = msg.content or ""
+        query_lower = query.strip().lower()
+        content_lower = content.lower()
+        idx = content_lower.find(query_lower)
+        
+        if idx >= 0:
+            start = max(0, idx - 40)
+            end = min(len(content), idx + len(query) + 40)
+            snippet = ("..." if start > 0 else "") + content[start:end] + ("..." if end < len(content) else "")
+        else:
+            snippet = content[:100]
+        
+        results.append({
+            "session_id": msg.session_id,
+            "session_title": session_title[:50],
+            "message_id": msg.id,
+            "role": msg.role.upper(),
+            "snippet": snippet,
+            "timestamp": msg.timestamp.strftime("%Y-%m-%d %H:%M"),
+            "full_content": content[:200]
+        })
+    
+    return {"results": results, "query": query.strip()}
 
 # --- ADMIN / TICKETING ROUTES (Unchanged) ---
 @app.get("/admin/metrics")
@@ -261,9 +392,9 @@ async def get_analytics_data(current_user: User = Depends(get_current_user), db:
     
 
 @app.get("/admin/users")
-async def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db), limit: int = 100):
     if not current_user.is_admin: raise HTTPException(status_code=403, detail="Access Denied.")
-    users = db.query(User).all()
+    users = db.query(User).limit(limit).all()
     result = []
     for u in users:
         result.append({
@@ -274,6 +405,17 @@ async def get_all_users(current_user: User = Depends(get_current_user), db: Sess
             "Joined Date": u.created_at.strftime("%Y-%m-%d")
         })
     return result
+
+@app.get("/admin/users/{target_id}/exists")
+async def user_exists(
+    target_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    user = db.query(User).filter(User.id == target_id).first()
+    return {"exists": user is not None}
 
 @app.delete("/admin/users/{target_id}")
 async def delete_user(target_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -459,6 +601,85 @@ async def get_mttr_metrics(
         "fastest_hours": round(min(resolution_times), 2),
         "slowest_hours": round(max(resolution_times), 2)
     }
+
+@app.get("/admin/analytics/enhanced")
+async def get_enhanced_analytics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Enhanced analytics with trends, components, and MTTR by severity."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from datetime import timedelta
+    import pandas as pd
+    
+    incidents = db.query(Incident).all()
+    if not incidents:
+        return {
+            "trend": [],
+            "components": [],
+            "mttr_by_severity": [],
+            "heatmap": []
+        }
+    
+    # Convert to DataFrame
+    data = []
+    for inc in incidents:
+        severity_match = re.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        component_match = re.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
+        
+        severity = severity_match.group(1) if severity_match else "UNKNOWN"
+        component = component_match.group(1).strip() if component_match else "Unknown"
+        
+        resolution_hours = None
+        if inc.resolved_at and inc.status == "resolved":
+            resolution_hours = (inc.resolved_at - inc.timestamp).total_seconds() / 3600
+        
+        data.append({
+            "date": inc.timestamp.strftime("%Y-%m-%d"),
+            "hour": inc.timestamp.hour,
+            "weekday": inc.timestamp.strftime("%A"),
+            "severity": severity,
+            "component": component,
+            "status": inc.status,
+            "resolution_hours": resolution_hours
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # 1. 7-Day Rolling Average Trend
+    daily = df.groupby('date').size().reset_index(name='count')
+    daily['date'] = pd.to_datetime(daily['date'])
+    daily = daily.sort_values('date')
+    daily['rolling_avg'] = daily['count'].rolling(window=7, min_periods=1).mean().round(1)
+    trend_data = daily[['date', 'count', 'rolling_avg']].tail(30).to_dict('records')
+    for item in trend_data:
+        item['date'] = item['date'].strftime("%Y-%m-%d")
+    
+    # 2. Top Affected Components
+    components = df.groupby('component').size().reset_index(name='incidents')
+    components = components.sort_values('incidents', ascending=False).head(8)
+    component_data = components.to_dict('records')
+    
+    # 3. MTTR by Severity
+    resolved = df[df['resolution_hours'].notna()]
+    mttr = resolved.groupby('severity')['resolution_hours'].agg(['mean', 'count']).round(1)
+    mttr = mttr.reset_index()
+    mttr.columns = ['severity', 'avg_hours', 'count']
+    mttr_data = mttr.to_dict('records')
+    
+    # 4. Heatmap (Day of Week vs Hour)
+    heatmap = df.groupby(['weekday', 'hour']).size().reset_index(name='incidents')
+    heatmap_data = heatmap.to_dict('records')
+    
+    return {
+        "trend": trend_data,
+        "components": component_data,
+        "mttr_by_severity": mttr_data,
+        "heatmap": heatmap_data
+    }
+
 
 @app.get("/incidents/export/csv")
 async def export_incidents_csv(
@@ -669,8 +890,100 @@ def create_notification(db: Session, user_id: int, notif_type: str, title: str, 
     db.add(notif)
     db.commit()
 
-    
+# --- DELETE & RENAME CHAT SESSIONS ---
 
+@app.delete("/chat/sessions/{session_id}")
+async def delete_chat_session(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied")
+
+    # Delete messages and session
+    db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()
+    db.delete(session)
+    db.commit()
+
+    # Notify the owner (unless they deleted it themselves)
+    if session.user_id != current_user.id:
+        create_notification(db, session.user_id, "chat_deleted",
+            "Chat session deleted by admin",
+            f"Your chat session '{session.title}' (ID: {session_id}) was deleted by an admin.")
+    # Always notify the acting user (admin or owner)
+    create_notification(db, current_user.id, "chat_deleted",
+        "Chat session deleted",
+        f"Chat session '{session.title}' (ID: {session_id}) has been deleted.")
+
+    return {"status": "success", "message": f"Chat session {session_id} deleted"}
+
+
+class RenameRequest(BaseModel):
+    new_title: str
+
+@app.put("/chat/sessions/{session_id}/rename")
+async def rename_chat_session(
+    session_id: int,
+    payload: RenameRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or access denied")
+    
+    old_title = session.title
+    new_title = payload.new_title.strip()
+    if not new_title or len(new_title) > 100:
+        raise HTTPException(status_code=400, detail="Title must be 1-100 characters")
+    
+    session.title = new_title
+    db.commit()
+
+    # Notify the owner
+    create_notification(db, current_user.id, "chat_renamed",
+        "Chat session renamed",
+        f"Session '{old_title}' renamed to '{new_title}' (ID: {session_id}).")
+
+    return {"status": "success", "new_title": new_title}
+
+    
+# --- DELETE INCIDENT ---
+
+@app.delete("/incidents/{incident_id}")
+async def delete_incident(
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied")
+
+    db.delete(incident)
+    db.commit()
+
+    # Notify the owner
+    if incident.user_id != current_user.id:
+        create_notification(db, incident.user_id, "incident_deleted",
+            "Incident deleted by admin",
+            f"Incident #{incident_id} was deleted by an admin.")
+    create_notification(db, current_user.id, "incident_deleted",
+        "Incident deleted",
+        f"Incident #{incident_id} has been deleted.")
+
+    return {"status": "success", "message": f"Incident {incident_id} deleted"}
+
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

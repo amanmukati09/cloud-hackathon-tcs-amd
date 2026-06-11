@@ -66,3 +66,39 @@ def search_similar_incidents(logs_text, token):
     except Exception as e:
         print(f"Similarity search error: {e}")
     return pd.DataFrame(), gr.update(visible=False), gr.update(value="")
+
+def upload_log_files(file_paths, token):
+    """Handle file upload and return parsed contents."""
+    if not file_paths or not token:
+        return "", "📂 Upload .log or .txt files to auto-fill the text area"
+    
+    try:
+        all_lines = []
+        file_names = []
+        
+        # file_paths can be a single string or list
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+        
+        for file_path in file_paths:
+            if not file_path:
+                continue
+                
+            file_names.append(file_path.split('/')[-1])
+            
+            # Read the file locally (Gradio saves uploaded files to temp location)
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+                all_lines.extend(lines)
+        
+        if not all_lines:
+            return "", "❌ No valid log lines found in uploaded files"
+        
+        log_text = "\n".join(all_lines[:5000])  # Limit to 5000 lines
+        info = f"✅ Loaded {len(file_names)} file(s): {', '.join(file_names[:3])} | {len(all_lines)} lines total"
+        
+        return log_text, info
+        
+    except Exception as e:
+        return "", f"❌ Error reading file: {str(e)}"

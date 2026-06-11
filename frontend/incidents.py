@@ -78,3 +78,20 @@ def export_incident_pdf(incident_id, token):
         else: gr.Warning("❌ Failed to export PDF")
     except Exception as e: gr.Warning(f"❌ Export Error: {e}")
     return gr.update(visible=False)
+
+def delete_incident(incident_id, token):
+    """Delete an incident by ID."""
+    if not incident_id or not token:
+        return fetch_history(token)
+    try:
+        res = requests.delete(
+            f"{BACKEND_URL}/incidents/{int(incident_id)}",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if res.status_code == 200:
+            gr.Info(f"✅ Incident {int(incident_id)} deleted")
+        else:
+            gr.Warning(f"❌ {res.json().get('detail', 'Delete failed')}")
+    except Exception as e:
+        gr.Warning(f"❌ Error: {e}")
+    return fetch_history(token)

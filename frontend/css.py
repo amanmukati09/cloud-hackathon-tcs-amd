@@ -1,7 +1,5 @@
 import gradio as gr
 
-
-
 custom_css = """
 /* Base styling */
 body { font-family: 'Inter', -apple-system, sans-serif !important; background-color: #0f172a !important; }
@@ -18,17 +16,10 @@ footer { display: none !important; }
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
     min-height: 50px !important;
 }
-.nav-left {
-    display: flex !important;
-    align-items: center !important;
-    gap: 10px !important;
-}
-.nav-right {
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-}
+.nav-left { display: flex !important; align-items: center !important; gap: 10px !important; }
+.nav-right { display: flex !important; align-items: center !important; gap: 8px !important; }
 .welcome-text h3 { margin: 0 !important; color: #f8fafc !important; font-weight: 600 !important; font-size: 1.2rem !important; }
+
 .logout-btn { 
     height: 34px !important; 
     border-radius: 8px !important; 
@@ -39,39 +30,25 @@ footer { display: none !important; }
     white-space: nowrap !important;
 }
 
-/* Notification Bell */
-.notification-bell {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    min-width: 34px !important;
+/* Theme Toggle Button */
+.theme-toggle-btn {
     height: 34px !important;
+    width: 34px !important;
+    min-width: 34px !important;
     border-radius: 8px !important;
-    background: rgba(255,255,255,0.05) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    cursor: pointer !important;
-    position: relative !important;
+    font-size: 1.1rem !important;
     padding: 0 !important;
-    margin: 0 !important;
-}
-.notification-bell span {
-    font-size: 1rem !important;
-}
-.notification-badge {
-    position: absolute !important;
-    top: -6px !important;
-    right: -6px !important;
-    background: #ef4444 !important;
-    color: white !important;
-    border-radius: 50% !important;
-    width: 18px !important;
-    height: 18px !important;
-    font-size: 0.65rem !important;
-    font-weight: bold !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    line-height: 1 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+.theme-toggle-btn:hover {
+    transform: scale(1.05);
+    background: rgba(255, 255, 255, 0.1) !important;
 }
 
 /* Footer */
@@ -124,10 +101,13 @@ footer { display: none !important; }
 .short-table { max-height: 180px !important; overflow-y: auto !important; display: block !important; width: 100% !important; border-radius: 8px; }
 
 /* Admin panel */
-.admin-panel { border: 2px solid rgba(245, 158, 11, 0.3) !important; background: rgba(245, 158, 11, 0.02) !important; border-radius: 16px !important; padding: 25px !important; margin-bottom: 25px !important; }
-
-/* Fix Gradio default spacing in rows */
-.gr-row { gap: 8px !important; }
+.admin-panel { 
+    border: 2px solid rgba(245, 158, 11, 0.3) !important; 
+    background: rgba(245, 158, 11, 0.02) !important; 
+    border-radius: 16px !important; 
+    padding: 25px !important; 
+    margin-bottom: 25px !important; 
+}
 """
 
 saas_theme = gr.themes.Soft(
