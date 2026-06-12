@@ -16,14 +16,13 @@ def api_login(email, password):
             is_admin = bool(data.get("is_admin", False))
             raw_name = email.split('@')[0].capitalize()
 
-            # Build role badge
             if is_admin:
                 role_display = "🛡️ Root Admin"
-                role_color = "#f59e0b"   # amber
+                role_color = "#f59e0b"
                 bg_color = "rgba(245,158,11,0.15)"
             else:
                 role_display = "👤 Standard User"
-                role_color = "#38bdf8"   # blue
+                role_color = "#38bdf8"
                 bg_color = "rgba(56,189,248,0.15)"
 
             welcome_str = (
@@ -54,7 +53,6 @@ def api_register(email, password, name):
             token = res.json().get("access_token")
             raw_name = name.split(' ')[0].capitalize()
 
-            # Standard user badge
             role_display = "👤 Standard User"
             role_color = "#38bdf8"
             bg_color = "rgba(56,189,248,0.15)"
@@ -88,5 +86,6 @@ def logout():
         pd.DataFrame(), gr.update(visible=False), gr.update(value=""),
         pd.DataFrame(), gr.update(visible=False), gr.update(value=None), gr.update(value=""), gr.update(value="*Select an incident to view details*"),
         gr.update(visible=False),
-        "0", pd.DataFrame()
+        "0", pd.DataFrame(),
+        pd.DataFrame(), pd.DataFrame(), None, None   # community components
     )

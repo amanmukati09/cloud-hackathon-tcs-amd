@@ -108,7 +108,40 @@ footer { display: none !important; }
     padding: 25px !important; 
     margin-bottom: 25px !important; 
 }
+
+/* Community feed styling */
+.community-feed table {
+    border-collapse: separate !important;
+    border-spacing: 0 8px !important;
+}
+.community-feed tr {
+    background: rgba(30, 41, 59, 0.7) !important;
+    border-radius: 8px !important;
+    transition: background 0.2s;
+}
+.community-feed tr:hover {
+    background: rgba(30, 41, 59, 0.9) !important;
+}
+.community-feed td {
+    padding: 10px 12px !important;
+    border: none !important;
+}
+.community-comments table {
+    border-collapse: separate !important;
+    border-spacing: 0 4px !important;
+}
+.community-comments tr {
+    background: rgba(15, 23, 42, 0.6) !important;
+    border-radius: 6px !important;
+}
+.community-comments td {
+    padding: 8px 10px !important;
+    border: none !important;
+}
+
 """
+
+
 
 saas_theme = gr.themes.Soft(
     primary_hue="blue",

@@ -12,6 +12,10 @@ from incidents import resolve_incident, get_incident_details, export_csv, export
 from tickets import submit_escalation, fetch_my_tickets, load_admin_tickets, answer_escalation
 from notifications import fetch_notifications, mark_notifications_read
 from admin import load_admin_data, fetch_analytics, purge_user, inspect_user_data
+from community import (
+    load_posts, create_post, delete_post, like_post,
+    load_comments_for_post, add_comment_to_post, delete_comment, like_comment
+)
 
 def dismiss_download():
     return gr.update(visible=False), gr.update(value=None)
@@ -22,7 +26,9 @@ def dismiss_resolve():
 # --- UI LAYOUT ---
 with gr.Blocks(title="AegisAI") as demo:
     session_token, current_chat_id = gr.State(""), gr.State(None)
-    
+    selected_post_id = gr.State(None)          # for community
+    selected_comment_id = gr.State(None)       # for community
+
     # --- AUTH VIEW ---
     with gr.Column(visible=True) as auth_view:
         gr.Markdown("<center><h1 style='font-size: 2.5rem; margin-bottom: 20px; color: #38bdf8;'>🛡️ AegisAI Portal</h1></center>")
@@ -42,14 +48,13 @@ with gr.Blocks(title="AegisAI") as demo:
 
     # --- APP VIEW ---
     with gr.Column(visible=False) as app_view:
-        
         with gr.Row(elem_classes="nav-container"):
             with gr.Column(scale=1, elem_classes="nav-left"):
                 welcome_text = gr.Markdown("", elem_classes="welcome-text")
             with gr.Column(scale=0, min_width=200, elem_classes="nav-right"):
                 notification_count = gr.Textbox(value="0", visible=False)
                 logout_btn = gr.Button("🔒 Logout", variant="stop", elem_classes="logout-btn")
-            
+
         # Admin Dashboard
         with gr.Column(visible=False) as admin_dashboard_view:
             gr.Markdown("## 🎛️ Root Administrator Dashboard")
@@ -115,7 +120,7 @@ with gr.Blocks(title="AegisAI") as demo:
                             answer_ticket_input = gr.Textbox(label="Your Answer", lines=3, placeholder="Type your response...")
                             answer_ticket_btn = gr.Button("📨 Send Answer", variant="primary", elem_classes="push-bottom")
 
-        # MAIN TABS (User-facing)
+        # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
             with gr.Tab("Live Diagnosis", id="tab_diag"):
                 with gr.Row(equal_height=True):
@@ -144,7 +149,7 @@ with gr.Blocks(title="AegisAI") as demo:
                         gr.Markdown("### 🔗 Similar Past Incidents")
                         similar_incidents_status = gr.Markdown("")
                         similar_incidents_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
-                        
+
             with gr.Tab("💬 AI Copilot", id="tab_chat"):
                 with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
@@ -159,7 +164,6 @@ with gr.Blocks(title="AegisAI") as demo:
                         with gr.Row():
                             refresh_chat_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm")
                             new_chat_btn = gr.Button("➕ New Chat", variant="primary", size="sm")
-                        # Delete & Rename controls
                         with gr.Row():
                             delete_chat_btn = gr.Button("🗑️ Delete Chat", variant="stop", size="sm")
                             rename_chat_input = gr.Textbox(label="Rename", placeholder="New title", scale=3)
@@ -181,7 +185,7 @@ with gr.Blocks(title="AegisAI") as demo:
                         with gr.Row():
                             chat_input = gr.Textbox(show_label=False, placeholder="Ask the AI Copilot...", scale=4)
                             chat_send_btn = gr.Button("Send 🚀", variant="primary", scale=1)
-                            
+
             with gr.Tab("My Incident History"):
                 with gr.Column(elem_classes="glass-card"):
                     with gr.Row():
@@ -219,9 +223,46 @@ with gr.Blocks(title="AegisAI") as demo:
                         submit_ticket_btn = gr.Button("Submit Ticket 📨", variant="primary", elem_classes="push-bottom")
                     with gr.Column(scale=2, elem_classes="glass-card"):
                         with gr.Row():
-                            gr.Markdown("### Your Ticket History", scale=4) 
+                            gr.Markdown("### Your Ticket History", scale=4)
                             refresh_my_tickets_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
                         my_tickets_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+
+            # 🌐 Community Dashboard
+            
+
+            with gr.Tab("🌐 Community"):
+                with gr.Row():
+                    with gr.Column(scale=2, elem_classes="glass-card"):
+                        gr.Markdown("### 📢 Feed")
+                        community_posts_table = gr.Dataframe(
+                            interactive=False,
+                            wrap=True,
+                            elem_classes="table-scroll community-feed",
+                            label="Posts"
+                        )
+                        with gr.Row():
+                            new_post_input = gr.Textbox(label="What's on your mind?", lines=2, placeholder="Share something with the team...")
+                            post_btn = gr.Button("Post", variant="primary")
+                        with gr.Row():
+                            refresh_posts_btn = gr.Button("🔄 Refresh", variant="secondary")
+                            like_post_btn = gr.Button("❤️ Like", variant="secondary")
+                            delete_post_btn = gr.Button("🗑️ Delete Post", variant="stop")
+
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### 💬 Comments")
+                        community_comments_table = gr.Dataframe(
+                            interactive=False,
+                            wrap=True,
+                            elem_classes="short-table community-comments",
+                            label="Comments"
+                        )
+                        with gr.Row():
+                            new_comment_input = gr.Textbox(label="Write a reply", lines=1, placeholder="Reply...")
+                            comment_btn = gr.Button("Reply", variant="primary")
+                        with gr.Row():
+                            like_comment_btn = gr.Button("❤️ Like Comment", variant="secondary")
+                            delete_comment_btn = gr.Button("🗑️ Delete Comment", variant="stop")
+           
 
             with gr.Tab("🔔 Notifications"):
                 with gr.Column(elem_classes="glass-card"):
@@ -246,56 +287,59 @@ with gr.Blocks(title="AegisAI") as demo:
 
     clear_btn.click(
         fn=lambda: ("", "", "*Waiting for log analysis...*", "*Waiting for log analysis...*", "*Waiting for log analysis...*",
-                    pd.DataFrame(), gr.update(visible=False), gr.update(value="")), 
-        outputs=[logs_input, upload_status, anomaly_out, rc_out, remed_out, similar_incidents_table, similar_incidents_row, similar_incidents_status], 
+                    pd.DataFrame(), gr.update(visible=False), gr.update(value="")),
+        outputs=[logs_input, upload_status, anomaly_out, rc_out, remed_out, similar_incidents_table, similar_incidents_row, similar_incidents_status],
         queue=False
     )
 
     login_btn.click(
-        fn=api_login, inputs=[log_email, log_pass], 
+        fn=api_login, inputs=[log_email, log_pass],
         outputs=[session_token, auth_view, app_view, welcome_text, role_text, admin_dashboard_view, notification_count, notifications_table]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
     ).then(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table]
     ).then(fn=fetch_analytics, inputs=[session_token], outputs=[plot_timeline, plot_severity, plot_status]
     ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table]
     ).then(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table]
-    ).then(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
-    
+    ).then(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown]
+    ).then(fn=load_posts, inputs=[session_token], outputs=[community_posts_table])
+
     register_btn.click(
-        fn=api_register, inputs=[reg_email, reg_pass, reg_name], 
+        fn=api_register, inputs=[reg_email, reg_pass, reg_name],
         outputs=[session_token, auth_view, app_view, welcome_text, role_text, admin_dashboard_view, notification_count, notifications_table]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
-    ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table])
-    
+    ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table]
+    ).then(fn=load_posts, inputs=[session_token], outputs=[community_posts_table])
+
     logout_btn.click(fn=logout, outputs=[
-        session_token, auth_view, app_view, welcome_text, role_text, chat_session_dropdown, admin_dashboard_view,
-        log_email, log_pass, log_show_pass, reg_name, reg_email, reg_pass, reg_show_pass,
-        inspect_user_input, inspect_incidents_table, inspect_chats_table, inspect_status_msg,
-        ticket_question_input, my_tickets_table, answer_ticket_id_input, answer_ticket_input, admin_tickets_table,
-        metric_users, metric_incidents, metric_chats, plot_timeline, plot_severity, plot_status,
-        similar_incidents_table, similar_incidents_row, similar_incidents_status,
-        history_table, resolve_incident_row, resolve_incident_id, resolve_notes_input, incident_details_md,
-        download_row, notification_count, notifications_table
-    ], queue=False)
+    session_token, auth_view, app_view, welcome_text, role_text, chat_session_dropdown, admin_dashboard_view,
+    log_email, log_pass, log_show_pass, reg_name, reg_email, reg_pass, reg_show_pass,
+    inspect_user_input, inspect_incidents_table, inspect_chats_table, inspect_status_msg,
+    ticket_question_input, my_tickets_table, answer_ticket_id_input, answer_ticket_input, admin_tickets_table,
+    metric_users, metric_incidents, metric_chats, plot_timeline, plot_severity, plot_status,
+    similar_incidents_table, similar_incidents_row, similar_incidents_status,
+    history_table, resolve_incident_row, resolve_incident_id, resolve_notes_input, incident_details_md,
+    download_row, notification_count, notifications_table,
+    community_posts_table, community_comments_table, selected_post_id, selected_comment_id
+], queue=False)
+
+
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input, session_token], outputs=[anomaly_out, rc_out, remed_out, history_table])
     refresh_btn.click(fn=fetch_history, inputs=[session_token], outputs=[history_table])
     discuss_btn.click(
-        fn=lambda l, a: (gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"), [], None, gr.update(value=None), gr.update(selected="tab_chat")) if l.strip() else (gr.update(), gr.update(), gr.update(), gr.update(), gr.update()), 
+        fn=lambda l, a: (gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"), [], None, gr.update(value=None), gr.update(selected="tab_chat")) if l.strip() else (gr.update(), gr.update(), gr.update(), gr.update(), gr.update()),
         inputs=[logs_input, anomaly_out], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager], queue=False
     )
     chat_send_btn.click(fn=send_chat_msg, inputs=[chat_input, current_chat_id, chatbot_ui, session_token], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown])
     chat_input.submit(fn=send_chat_msg, inputs=[chat_input, current_chat_id, chatbot_ui, session_token], outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown])
     new_chat_btn.click(fn=lambda: ("", [], None, gr.update(value=None)), outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown], queue=False)
-    
+
     chat_session_dropdown.change(fn=load_chat_session, inputs=[chat_session_dropdown, session_token], outputs=[chatbot_ui, current_chat_id])
     refresh_chat_btn.click(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
 
-    # Delete & Rename
     delete_chat_btn.click(fn=delete_chat_session, inputs=[current_chat_id, session_token], outputs=[chatbot_ui, chat_session_dropdown])
     rename_chat_btn.click(fn=rename_chat_session, inputs=[current_chat_id, rename_chat_input, session_token], outputs=[chat_session_dropdown, chat_session_dropdown])
 
-    # Search
     chat_search_btn.click(fn=search_chats, inputs=[chat_search_input, session_token], outputs=[chat_search_results, chat_search_status])
     def on_search_click(evt: gr.SelectData, token):
         if evt.row_value is not None and len(evt.row_value) > 0:
@@ -305,10 +349,9 @@ with gr.Blocks(title="AegisAI") as demo:
         return gr.update(), gr.update(), gr.update()
     chat_search_results.select(fn=on_search_click, inputs=[session_token], outputs=[chatbot_ui, current_chat_id, chat_session_dropdown])
 
-    # Admin
     refresh_admin_btn.click(fn=load_admin_data, inputs=[session_token], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table]
     ).then(fn=fetch_analytics, inputs=[session_token], outputs=[plot_timeline, plot_severity, plot_status])
-        
+
     delete_user_btn.click(fn=purge_user, inputs=[session_token, delete_user_input], outputs=[metric_users, metric_incidents, metric_chats, admin_users_table, admin_status_msg]
     ).then(fn=clear_status, outputs=[admin_status_msg])
     inspect_btn.click(fn=inspect_user_data, inputs=[session_token, inspect_user_input], outputs=[inspect_incidents_table, inspect_chats_table, inspect_status_msg]
@@ -320,7 +363,7 @@ with gr.Blocks(title="AegisAI") as demo:
 
     search_similar_btn.click(fn=search_similar_incidents, inputs=[logs_input, session_token], outputs=[similar_incidents_table, similar_incidents_row, similar_incidents_status])
 
-    # Incident History
+    # Incident history interactions
     def on_history_select(evt: gr.SelectData, token):
         if evt.row_value and len(evt.row_value) > 0:
             incident_id = evt.row_value[0]
@@ -328,7 +371,7 @@ with gr.Blocks(title="AegisAI") as demo:
             return details, gr.update(visible=True), gr.update(value=incident_id)
         return gr.update(), gr.update(visible=False), gr.update(value=None)
     history_table.select(fn=on_history_select, inputs=[session_token], outputs=[incident_details_md, resolve_incident_row, resolve_incident_id])
-    
+
     resolve_btn.click(fn=resolve_incident, inputs=[resolve_incident_id, resolve_notes_input, session_token], outputs=[resolve_notes_input, history_table]
     ).then(fn=lambda: (gr.update(visible=False), gr.update(value=None), gr.update(value="*Incident resolved successfully!*")),
         outputs=[resolve_incident_row, resolve_incident_id, incident_details_md])
@@ -345,11 +388,54 @@ with gr.Blocks(title="AegisAI") as demo:
     dismiss_download_btn.click(fn=dismiss_download, outputs=[download_row, download_file])
     dismiss_resolve_btn.click(fn=dismiss_resolve, outputs=[resolve_incident_row, resolve_incident_id, incident_details_md])
 
+        # Community interactions
+    refresh_posts_btn.click(fn=load_posts, inputs=[session_token], outputs=[community_posts_table])
+    post_btn.click(fn=create_post, inputs=[new_post_input, session_token], outputs=[community_posts_table])
+
+    def on_post_select(evt: gr.SelectData, token):
+        if evt.row_value is not None and len(evt.row_value) > 0:
+            pid = int(evt.row_value[0])
+            comments = load_comments_for_post(pid, token)
+            return comments, pid
+        return pd.DataFrame(), None
+    community_posts_table.select(
+        fn=on_post_select,
+        inputs=[session_token],
+        outputs=[community_comments_table, selected_post_id]
+    )
+
+    delete_post_btn.click(fn=delete_post, inputs=[selected_post_id, session_token], outputs=[community_posts_table])
+    like_post_btn.click(fn=like_post, inputs=[selected_post_id, session_token], outputs=[community_posts_table])
+
+    comment_btn.click(
+        fn=add_comment_to_post,
+        inputs=[selected_post_id, new_comment_input, session_token],
+        outputs=[community_comments_table]
+    )
+
+    def on_comment_select(evt: gr.SelectData, token):
+        if evt.row_value is not None and len(evt.row_value) > 0:
+            return evt.row_value[0]   # comment ID
+        return None
+    community_comments_table.select(fn=on_comment_select, inputs=[session_token], outputs=[selected_comment_id])
+
+    delete_comment_btn.click(
+        fn=delete_comment,
+        inputs=[selected_comment_id, selected_post_id, session_token],
+        outputs=[community_comments_table]
+    )
+    like_comment_btn.click(
+        fn=like_comment,
+        inputs=[selected_comment_id, selected_post_id, session_token],
+        outputs=[community_comments_table]
+    )
+
+
     mark_read_btn.click(fn=mark_notifications_read, inputs=[session_token], outputs=[notification_count, notifications_table])
     refresh_notif_btn.click(fn=fetch_notifications, inputs=[session_token], outputs=[notifications_table, notification_count])
 
 if __name__ == "__main__":
     demo.queue(default_concurrency_limit=10, max_size=100).launch(
-        share=True, server_name="0.0.0.0", server_port=7860, 
+        share=True, server_name="0.0.0.0", server_port=7860,
         theme=saas_theme, css=custom_css
     )

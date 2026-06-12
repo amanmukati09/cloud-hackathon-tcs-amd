@@ -17,9 +17,11 @@ from fastapi.responses import StreamingResponse
 import csv
 import io
 import re
-from models import EscalationTicket, Notification
+from models import EscalationTicket, Notification, CommunityPost, PostLike, CommunityComment, CommentLike
 from fastapi import UploadFile, File
 from typing import List
+
+
 
 
 # 🛡️ Import the synchronized Security Guardrails
@@ -223,7 +225,159 @@ async def get_user_incidents(current_user: User = Depends(get_current_user), db:
     incidents = db.query(Incident).filter(Incident.user_id == current_user.id).order_by(Incident.timestamp.desc()).all()
     return [{"id": i.id, "timestamp": i.timestamp, "raw_logs": i.raw_logs, "anomaly": i.anomaly_description, "root_cause": i.root_cause, "remediation": i.remediation_action, "status": i.status} for i in incidents]
 
+
+# ─── Community Dashboard ─────────────────────────────
+
+class PostCreate(BaseModel):
+    content: str
+
+class CommentCreate(BaseModel):
+    content: str
+
+# Posts
+@app.get("/community/posts")
+async def get_posts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    posts = db.query(CommunityPost).order_by(CommunityPost.created_at.desc()).limit(50).all()
+    result = []
+    for p in posts:
+        like_count = db.query(PostLike).filter(PostLike.post_id == p.id).count()
+        user_liked = db.query(PostLike).filter(
+            PostLike.post_id == p.id, PostLike.user_id == current_user.id
+        ).first() is not None
+        result.append({
+            "id": p.id,
+            "author": p.author.email,
+            "content": p.content,
+            "timestamp": p.created_at.strftime("%Y-%m-%d %H:%M"),
+            "likes": like_count,
+            "user_liked": user_liked,
+            "comment_count": db.query(CommunityComment).filter(CommunityComment.post_id == p.id).count()
+        })
+    return result
+
+@app.post("/community/posts")
+async def create_post(
+    payload: PostCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    post = CommunityPost(user_id=current_user.id, content=payload.content.strip())
+    db.add(post)
+    db.commit()
+    return {"status": "success", "post_id": post.id}
+
+@app.delete("/community/posts/{post_id}")
+async def delete_post(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    post = db.query(CommunityPost).filter(CommunityPost.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    db.delete(post)
+    db.commit()
+    return {"status": "success"}
+
+# Likes on posts
+@app.post("/community/posts/{post_id}/like")
+async def like_post(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    existing = db.query(PostLike).filter(
+        PostLike.post_id == post_id, PostLike.user_id == current_user.id
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"status": "unliked"}
+    db.add(PostLike(post_id=post_id, user_id=current_user.id))
+    db.commit()
+    return {"status": "liked"}
+
+# Comments
+@app.get("/community/posts/{post_id}/comments")
+async def get_comments(
+    post_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    comments = db.query(CommunityComment).filter(
+        CommunityComment.post_id == post_id
+    ).order_by(CommunityComment.created_at.asc()).all()
+    result = []
+    for c in comments:
+        like_count = db.query(CommentLike).filter(CommentLike.comment_id == c.id).count()
+        user_liked = db.query(CommentLike).filter(
+            CommentLike.comment_id == c.id, CommentLike.user_id == current_user.id
+        ).first() is not None
+        result.append({
+            "id": c.id,
+            "author": c.author.email,
+            "content": c.content,
+            "timestamp": c.created_at.strftime("%Y-%m-%d %H:%M"),
+            "likes": like_count,
+            "user_liked": user_liked
+        })
+    return result
+
+@app.post("/community/posts/{post_id}/comments")
+async def add_comment(
+    post_id: int,
+    payload: CommentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    comment = CommunityComment(
+        post_id=post_id,
+        user_id=current_user.id,
+        content=payload.content.strip()
+    )
+    db.add(comment)
+    db.commit()
+    return {"status": "success"}
+
+@app.delete("/community/comments/{comment_id}")
+async def delete_comment(
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    comment = db.query(CommunityComment).filter(CommunityComment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(status_code=404)
+    if comment.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403)
+    db.delete(comment)
+    db.commit()
+    return {"status": "success"}
+
+@app.post("/community/comments/{comment_id}/like")
+async def like_comment(
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    existing = db.query(CommentLike).filter(
+        CommentLike.comment_id == comment_id, CommentLike.user_id == current_user.id
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"status": "unliked"}
+    db.add(CommentLike(comment_id=comment_id, user_id=current_user.id))
+    db.commit()
+    return {"status": "liked"}
+    
 # --- CHAT ENDPOINTS ---
+
 
 @app.post("/chat/message")
 async def send_chat_message(req: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -534,8 +688,6 @@ async def resolve_incident(
         "incident_id": incident.id,
         "resolution_time_hours": round(hours, 2)
     }
-
-
 
 @app.get("/incidents/{incident_id}/details")
 async def get_incident_details(
