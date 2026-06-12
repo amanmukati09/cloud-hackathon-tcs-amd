@@ -7,20 +7,32 @@ class ChatAgent:
         self.model = model
 
     def generate_response(self, user_message: str, chat_history: list) -> str:
-        # OPTIMIZATION: Strict conciseness instructions to lower token count and boost generation speed!
+        """
+        Generate a response using full conversation history.
+        The prompt already includes RAG context (relevant past incidents)
+        from the router.
+        """
         system_prompt = (
             "You are AegisAI, an expert Site Reliability Engineering (SRE) assistant. "
             "Provide highly technical, precise, and actionable answers. "
-            "Keep your responses concise: strictly under 3-4 sentences or tight bullet points and reply to local daily coversations with a friendly tone and help users troubleshoot their infrastructure issues or whatever they need help with. Always ask follow-up questions to clarify the issue and gather more information if needed. Use the chat history for context but do not repeat information unnecessarily."
+            "Keep responses concise: under 3-4 sentences or tight bullet points. "
+            "Use the chat history for context. "
+            "If [RELEVANT PAST INCIDENTS] is provided, use that data to give "
+            "company-specific answers. Reference incident IDs when applicable."
         )
-        prompt = f"{system_prompt}\n\nUser: {user_message}\nAI:"
-        
+
+        # Build conversation string
+        conversation = system_prompt + "\n\n"
+        for msg in chat_history:
+            role = "User" if msg["role"] == "user" else "AI"
+            conversation += f"{role}: {msg['content']}\n"
+        conversation += f"User: {user_message}\nAI:"
+
         try:
-            # FIX: Increased timeout ceiling to 5 minutes to fully protect slower generations
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
-                json={"model": self.model, "prompt": prompt, "stream": False},
-                timeout=300 
+                json={"model": self.model, "prompt": conversation, "stream": False},
+                timeout=300
             )
             if response.status_code == 200:
                 return response.json().get("response", "Error generating response.")

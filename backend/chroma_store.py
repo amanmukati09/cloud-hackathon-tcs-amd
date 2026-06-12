@@ -13,23 +13,21 @@ class IncidentStore:
     
     def load_from_db(self):
         """Load incidents from SQLite into ChromaDB"""
-        conn = sqlite3.connect("data/incidents.db")
+        conn = sqlite3.connect("aegis_core.db")
         c = conn.cursor()
         incidents = c.execute("SELECT id, anomaly_description FROM incidents").fetchall()
         conn.close()
         
         for incident_id, anomaly_json in incidents:
             try:
-                anomaly = json.loads(anomaly_json)
-                text = f"{anomaly.get('anomaly_type', '')} {anomaly.get('description', '')} {anomaly.get('affected_component', '')}"
-                
+                text = str(anomaly_json) if anomaly_json else ""
                 self.collection.add(
                     ids=[str(incident_id)],
                     documents=[text],
                     metadatas=[{"incident_id": incident_id}]
                 )
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to load incident {incident_id}: {e}")
         
         print(f"✅ Loaded {len(incidents)} incidents into ChromaDB")
     
