@@ -108,23 +108,37 @@ async def get_enhanced_analytics(
 async def get_all_users(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    limit: int = 100
+    limit: int = 50  # 🔧 Reduced from 100
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    users = db.query(User).limit(limit).all()
+    
+    # 🔧 Use a single optimized query with joins
+    from sqlalchemy import func
+    
+    users = db.query(
+        User.id, User.full_name, User.email, User.is_admin, User.created_at,
+        func.count(Incident.id).label('incident_count'),
+        func.count(ChatSession.id).label('chat_count')
+    ).outerjoin(Incident, Incident.user_id == User.id
+    ).outerjoin(ChatSession, ChatSession.user_id == User.id
+    ).group_by(User.id
+    ).order_by(User.created_at.desc()
+    ).limit(limit).all()
+    
     result = []
     for u in users:
         result.append({
             "User ID": u.id,
             "Full Name": u.full_name,
             "Email": u.email,
-            "Role": "🛡️ ROOT" if u.is_admin else "👤 User",
-            "Incidents Logged": db.query(Incident).filter(Incident.user_id == u.id).count(),
-            "AI Chats": db.query(ChatSession).filter(ChatSession.user_id == u.id).count(),
-            "Joined Date": u.created_at.strftime("%Y-%m-%d")
+            "Role": "Admin" if u.is_admin else "User",
+            "Incidents": u.incident_count,
+            "Chats": u.chat_count,
+            "Joined": u.created_at.strftime("%Y-%m-%d") if u.created_at else ""
         })
     return result
+    
 
 # ── Check user exists ─────────────────────────────────
 @router.get("/admin/users/{target_id}/exists")
@@ -274,3 +288,40 @@ async def get_my_escalations(
         "Admin Answer": t.answer or "⏳ Pending Review...",
         "Status": "🟢 OPEN" if t.status == "open" else "✅ RESOLVED"
     } for t in tickets]
+
+@router.get("/admin/predictions")
+async def get_incident_predictions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get AI-powered incident predictions."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from agents.predictor import IncidentPredictor
+    import re as regex
+    
+    # Fetch all incidents with details
+    incidents = db.query(Incident).all()
+    
+    if not incidents:
+        return {"predictions": [], "risk_level": "LOW", "summary": "No data for predictions"}
+    
+    # Prepare data for analysis
+    data = []
+    for inc in incidents:
+        severity_match = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        component_match = regex.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
+        
+        data.append({
+            "date": inc.timestamp.strftime("%Y-%m-%d"),
+            "hour": inc.timestamp.hour,
+            "weekday": inc.timestamp.strftime("%A"),
+            "severity": severity_match.group(1) if severity_match else "UNKNOWN",
+            "component": component_match.group(1).strip() if component_match else "Unknown",
+            "anomaly_type": inc.anomaly_description[:50] if inc.anomaly_description else "Unknown",
+            "status": inc.status
+        })
+    
+    predictor = IncidentPredictor()
+    return predictor.analyze_patterns(data)

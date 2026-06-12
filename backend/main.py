@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from auth import router as auth_router
 from routers import diagnosis, incidents, chat, community, admin, notifications
+from routers import workflow
+
+# Add this line with other router includes:
 
 app = FastAPI(title="AegisAI Backend")
 
@@ -21,6 +24,8 @@ app.include_router(chat.router)
 app.include_router(community.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
+app.include_router(workflow.router)
+
 
 if __name__ == "__main__":
     import uvicorn
