@@ -325,3 +325,86 @@ async def get_incident_predictions(
     
     predictor = IncidentPredictor()
     return predictor.analyze_patterns(data)
+
+class AlertConfigRequest(BaseModel):
+    slack_webhook: Optional[str] = None
+    teams_webhook: Optional[str] = None
+    email: Optional[str] = None
+    alert_on_severity: str = "HIGH"  # Minimum severity to alert
+
+    
+@router.post("/admin/alerts/configure")
+async def configure_alerts(
+    config: AlertConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from agents.alerting import AlertManager
+    alert_mgr = AlertManager()
+    alert_mgr.configure(slack_url=config.slack_webhook, teams_url=config.teams_webhook)
+    
+    return {"status": "success", "message": "Alert configuration updated"}
+
+@router.post("/admin/alerts/test")
+async def test_alert(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from agents.alerting import AlertManager
+    alert_mgr = AlertManager()
+    
+    test_data = {
+        "id": "TEST-001",
+        "anomaly_type": "Test Alert",
+        "severity": "LOW",
+        "affected_component": "Alert System",
+        "description": "This is a test alert from AegisAI. If you see this, alerts are working!",
+        "root_cause": "Testing alert configuration",
+        "remediation": "No action needed - this is a test",
+        "timestamp": "Now"
+    }
+    
+    results = alert_mgr.send_incident_alert(test_data)
+    return {"status": "success", "results": results}
+
+@router.get("/admin/clusters")
+async def get_incident_clusters(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get AI-clustered incidents."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from agents.clustering import IncidentClusterer
+    import re as regex
+    
+    incidents = db.query(Incident).order_by(Incident.timestamp.desc()).limit(200).all()
+    
+    if not incidents:
+        return {"clusters": [], "summary": "No incidents to cluster"}
+    
+    data = []
+    for inc in incidents:
+        severity_match = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        data.append({
+            "id": inc.id,
+            "anomaly_description": inc.anomaly_description or "",
+            "root_cause": inc.root_cause or "",
+            "severity": severity_match.group(1) if severity_match else "UNKNOWN",
+            "component": "Unknown",
+            "status": inc.status,
+            "date": inc.timestamp.strftime("%Y-%m-%d")
+        })
+    
+    clusterer = IncidentClusterer()
+    clusters = clusterer.cluster_incidents(data)
+    html = clusterer.render_clusters_html(clusters)
+    
+    return {"clusters": clusters, "html": html}

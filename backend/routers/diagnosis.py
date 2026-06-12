@@ -81,8 +81,26 @@ async def diagnose_incident(
     from routers.notifications import create_notification
     create_notification(db, current_user.id, "diagnosis_complete", "Diagnosis Complete", f"Incident #{new_incident.id} has been analyzed")
     db.refresh(new_incident)
+    from agents.alerting import AlertManager
+    alert_mgr = AlertManager()
+    severity = anomaly.get("severity", "MEDIUM")
+    if severity.upper() in ["CRITICAL", "HIGH"]:
+        alert_data = {
+            "id": new_incident.id,
+            "anomaly_type": anomaly.get("anomaly_type", "Unknown"),
+            "severity": severity,
+            "affected_component": anomaly.get("affected_component", "Unknown"),
+            "description": anomaly.get("description", ""),
+            "root_cause": root_cause.get("root_cause", "") if isinstance(root_cause, dict) else str(root_cause),
+            "remediation": ", ".join(remed_plan.get("immediate_actions", [])),
+            "timestamp": new_incident.timestamp.strftime("%Y-%m-%d %H:%M")
+        }
+        alert_mgr.send_incident_alert(alert_data)
     return {"incident_id": new_incident.id, "anomaly": anomaly, "root_cause": root_cause, "remediation": remed_plan}
 
+
+
+    
 @router.post("/upload-logs")
 async def upload_log_files(
     files: List[UploadFile] = File(...),

@@ -156,3 +156,24 @@ def auto_remediate(logs_text, auto_execute, token):
     except Exception as e:
         return gr.update(), gr.update(), gr.update(), gr.update(value=f"❌ Error: {e}"), gr.update()
     return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
+
+def generate_rca_tree(logs_text, token):
+    """Generate and display RCA tree."""
+    if not token or not logs_text.strip():
+        return gr.update(value="*Paste logs and click 'RCA Tree' to analyze*")
+    
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/diagnose/rca-tree",
+            json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=120
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return gr.update(value=data.get("html", "*No tree generated*"))
+        else:
+            return gr.update(value="*Failed to generate RCA tree*")
+    except Exception as e:
+        return gr.update(value=f"*Error: {str(e)}*")

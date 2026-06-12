@@ -216,3 +216,22 @@ def fetch_predictions(token):
     except Exception as e:
         print(f"Prediction error: {e}")
     return gr.update(value="*Failed to load predictions*")
+
+    
+
+def fetch_clusters(token):
+    """Fetch incident clusters."""
+    if not token:
+        return gr.update(value="*Login as admin to view clusters*")
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/admin/clusters",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return gr.update(value=data.get("html", "*No clusters found*"))
+    except Exception as e:
+        print(f"Cluster error: {e}")
+    return gr.update(value="*Failed to load clusters*")

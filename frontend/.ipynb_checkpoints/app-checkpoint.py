@@ -2,10 +2,11 @@
 
 import gradio as gr
 import pandas as pd
+import requests
 from css import custom_css, saas_theme
-from utils import clear_status
+from utils import clear_status, BACKEND_URL
 from auth import api_login, api_register, logout
-from diagnosis import diagnose_logs, fetch_history, search_similar_incidents, upload_log_files, auto_remediate
+from diagnosis import diagnose_logs, fetch_history, search_similar_incidents, upload_log_files, auto_remediate, generate_rca_tree
 from chat import (
     get_chat_sessions, load_chat_session, send_chat_msg_stream, search_chats,
     load_chat_by_id, delete_chat_session, rename_chat_session,
@@ -14,7 +15,7 @@ from chat import (
 from incidents import resolve_incident, get_incident_details, export_csv, export_incident_pdf, delete_incident
 from tickets import submit_escalation, fetch_my_tickets, load_admin_tickets, answer_escalation
 from notifications import fetch_notifications, mark_notifications_read
-from admin import load_admin_data, fetch_analytics, purge_user, inspect_user_data, fetch_predictions
+from admin import load_admin_data, fetch_analytics, purge_user, inspect_user_data, fetch_predictions, fetch_clusters
 from community import (
     load_posts, create_post, delete_post, like_post,
     load_comments_for_post, add_comment_to_post, delete_comment, like_comment
@@ -29,6 +30,36 @@ def dismiss_resolve():
 def dismiss_workflow():
     return gr.update(value="")
 
+def dismiss_rca():
+    return "<p style='color:#94a3b8;text-align:center;'>Click 'RCA Tree' to visualize root cause analysis</p>"
+
+def save_alert_config(slack, teams, token):
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/admin/alerts/configure",
+            json={"slack_webhook": slack, "teams_webhook": teams},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            return gr.update(value="Configuration saved successfully!")
+    except:
+        pass
+    return gr.update(value="Failed to save configuration")
+
+def send_test_alert(token):
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/admin/alerts/test",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            return gr.update(value="Test alert sent! Check your channels.")
+    except:
+        pass
+    return gr.update(value="Failed to send test alert")
+
 # --- UI LAYOUT ---
 with gr.Blocks(title="AegisAI") as demo:
     session_token, current_chat_id = gr.State(""), gr.State(None)
@@ -37,7 +68,7 @@ with gr.Blocks(title="AegisAI") as demo:
 
     # --- AUTH VIEW ---
     with gr.Column(visible=True) as auth_view:
-        gr.Markdown("<center><h1 style='font-size:2.2rem;margin-bottom:16px;color:#38bdf8;'>🛡️ AegisAI</h1></center>")
+        gr.Markdown("<center><h1 style='font-size:2.2rem;margin-bottom:16px;color:#38bdf8;'>AegisAI</h1></center>")
         with gr.Row():
             with gr.Column(elem_classes="auth-box glass-card"):
                 with gr.Tab("Login"):
@@ -86,6 +117,10 @@ with gr.Blocks(title="AegisAI") as demo:
                             gr.Markdown("### AI Predictions")
                             predictions_output = gr.Markdown(value="*Login as admin to view predictions*", elem_classes="predictions-panel")
                     with gr.Row():
+                        with gr.Column(elem_classes="glass-card"):
+                            gr.Markdown("### Incident Clusters")
+                            clusters_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Loading clusters...</p>")
+                    with gr.Row():
                         with gr.Column(elem_classes="glass-card health-card"):
                             gr.Markdown("### System Health")
                             gr.Markdown("""<div style="padding:4px;text-align:center;">
@@ -127,6 +162,26 @@ with gr.Blocks(title="AegisAI") as demo:
                             answer_ticket_input = gr.Textbox(label="Your Answer", lines=3)
                             answer_ticket_btn = gr.Button("Send Answer", variant="primary", elem_classes="push-bottom")
 
+                with gr.Tab("Alert Settings"):
+                    with gr.Row():
+                        with gr.Column(elem_classes="glass-card"):
+                            gr.Markdown("### Configure Alert Channels")
+                            gr.Markdown("Alerts are sent for CRITICAL and HIGH severity incidents only.")
+                            slack_webhook_input = gr.Textbox(
+                                label="Slack Webhook URL",
+                                placeholder="https://hooks.slack.com/services/T00/B00/xxxx",
+                                lines=1
+                            )
+                            teams_webhook_input = gr.Textbox(
+                                label="Microsoft Teams Webhook URL",
+                                placeholder="https://prod-xx.westus.logic.azure.com/workflows/...",
+                                lines=1
+                            )
+                            with gr.Row():
+                                save_alerts_btn = gr.Button("Save Configuration", variant="primary")
+                                test_alert_btn = gr.Button("Send Test Alert", variant="secondary")
+                            alert_status = gr.Markdown("")
+
         # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
             # LIVE DIAGNOSIS
@@ -140,6 +195,7 @@ with gr.Blocks(title="AegisAI") as demo:
                         with gr.Row():
                             diagnose_btn = gr.Button("Analyze Logs", variant="primary")
                             auto_remediate_btn = gr.Button("Auto-Remediate", variant="primary")
+                            rca_tree_btn = gr.Button("RCA Tree", variant="primary")
                             clear_btn = gr.Button("Clear", variant="stop")
                         with gr.Row():
                             discuss_btn = gr.Button("Discuss with AI", variant="secondary")
@@ -164,6 +220,12 @@ with gr.Blocks(title="AegisAI") as demo:
                             gr.Markdown("### Auto-Remediation Results", scale=4)
                             dismiss_workflow_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
                         workflow_output = gr.Markdown(value="", elem_classes="predictions-panel")
+                with gr.Row() as rca_tree_row:
+                    with gr.Column(elem_classes="glass-card"):
+                        with gr.Row():
+                            gr.Markdown("### Root Cause Analysis Tree", scale=4)
+                            dismiss_rca_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
+                        rca_tree_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Click 'RCA Tree' to visualize root cause analysis</p>")
 
             # AI COPILOT
             with gr.Tab("AI Copilot"):
@@ -301,12 +363,13 @@ with gr.Blocks(title="AegisAI") as demo:
     log_upload.change(fn=upload_log_files, inputs=[log_upload, session_token], outputs=[logs_input, upload_status])
 
     clear_btn.click(
-        fn=lambda:("","","*Waiting for log analysis...*","*Waiting for log analysis...*","*Waiting for log analysis...*",pd.DataFrame(),gr.update(visible=False),gr.update(value="")),
+        fn=lambda:("","","*Waiting...*","*Waiting...*","*Waiting...*",pd.DataFrame(),gr.update(visible=False),gr.update(value="")),
         outputs=[logs_input,upload_status,anomaly_out,rc_out,remed_out,similar_incidents_table,similar_incidents_row,similar_incidents_status],
         queue=False
     )
 
     dismiss_workflow_btn.click(fn=dismiss_workflow, outputs=[workflow_output])
+    dismiss_rca_btn.click(fn=dismiss_rca, outputs=[rca_tree_output])
 
     login_btn.click(
         fn=api_login, inputs=[log_email,log_pass],
@@ -315,6 +378,7 @@ with gr.Blocks(title="AegisAI") as demo:
     ).then(fn=load_admin_data, inputs=[session_token], outputs=[metric_users,metric_incidents,metric_chats,admin_users_table]
     ).then(fn=fetch_analytics, inputs=[session_token], outputs=[plot_timeline,plot_severity,plot_status]
     ).then(fn=fetch_predictions, inputs=[session_token], outputs=[predictions_output]
+    ).then(fn=fetch_clusters, inputs=[session_token], outputs=[clusters_output]
     ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table]
     ).then(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table]
     ).then(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown]
@@ -342,6 +406,7 @@ with gr.Blocks(title="AegisAI") as demo:
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input,session_token], outputs=[anomaly_out,rc_out,remed_out,history_table])
     auto_remediate_btn.click(fn=auto_remediate, inputs=[logs_input,gr.State(False),session_token], outputs=[anomaly_out,rc_out,remed_out,workflow_output,history_table])
+    rca_tree_btn.click(fn=generate_rca_tree, inputs=[logs_input,session_token], outputs=[rca_tree_output])
     refresh_btn.click(fn=fetch_history, inputs=[session_token], outputs=[history_table])
     discuss_btn.click(
         fn=lambda l,a:(gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"),[],None,gr.update(value=None),gr.update(selected="tab_chat")) if l.strip() else (gr.update(),gr.update(),gr.update(),gr.update(),gr.update()),
@@ -368,7 +433,8 @@ with gr.Blocks(title="AegisAI") as demo:
 
     refresh_admin_btn.click(fn=load_admin_data, inputs=[session_token], outputs=[metric_users,metric_incidents,metric_chats,admin_users_table]
     ).then(fn=fetch_analytics, inputs=[session_token], outputs=[plot_timeline,plot_severity,plot_status]
-    ).then(fn=fetch_predictions, inputs=[session_token], outputs=[predictions_output])
+    ).then(fn=fetch_predictions, inputs=[session_token], outputs=[predictions_output]
+    ).then(fn=fetch_clusters, inputs=[session_token], outputs=[clusters_output])
 
     delete_user_btn.click(fn=purge_user, inputs=[session_token,delete_user_input], outputs=[metric_users,metric_incidents,metric_chats,admin_users_table,admin_status_msg]
     ).then(fn=clear_status, outputs=[admin_status_msg])
@@ -381,6 +447,9 @@ with gr.Blocks(title="AegisAI") as demo:
 
     search_similar_btn.click(fn=search_similar_incidents, inputs=[logs_input,session_token], outputs=[similar_incidents_table,similar_incidents_row,similar_incidents_status])
 
+    save_alerts_btn.click(fn=save_alert_config, inputs=[slack_webhook_input, teams_webhook_input, session_token], outputs=[alert_status])
+    test_alert_btn.click(fn=send_test_alert, inputs=[session_token], outputs=[alert_status])
+
     def on_history_select(evt:gr.SelectData,token):
         if evt.row_value and len(evt.row_value)>0:
             iid=evt.row_value[0]
@@ -390,10 +459,10 @@ with gr.Blocks(title="AegisAI") as demo:
     history_table.select(fn=on_history_select, inputs=[session_token], outputs=[incident_details_md,resolve_incident_row,resolve_incident_id])
 
     resolve_btn.click(fn=resolve_incident, inputs=[resolve_incident_id,resolve_notes_input,session_token], outputs=[resolve_notes_input,history_table]
-    ).then(fn=lambda:(gr.update(visible=False),gr.update(value=None),gr.update(value="*Incident resolved successfully!*")),
+    ).then(fn=lambda:(gr.update(visible=False),gr.update(value=None),gr.update(value="*Resolved!*")),
         outputs=[resolve_incident_row,resolve_incident_id,incident_details_md])
     delete_incident_btn.click(fn=delete_incident, inputs=[resolve_incident_id,session_token], outputs=[history_table]
-    ).then(fn=lambda:(gr.update(visible=False),gr.update(value=None),gr.update(value="*Incident deleted*")),
+    ).then(fn=lambda:(gr.update(visible=False),gr.update(value=None),gr.update(value="*Deleted*")),
         outputs=[resolve_incident_row,resolve_incident_id,incident_details_md])
 
     export_csv_btn.click(fn=export_csv, inputs=[session_token], outputs=[download_file]
