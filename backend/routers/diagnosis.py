@@ -78,6 +78,10 @@ async def diagnose_incident(
     )
     db.add(new_incident)
     db.commit()
+    
+    from cache import clear_prefix
+    clear_prefix("admin_metrics")
+    
     from routers.notifications import create_notification
     create_notification(db, current_user.id, "diagnosis_complete", "Diagnosis Complete", f"Incident #{new_incident.id} has been analyzed")
     db.refresh(new_incident)

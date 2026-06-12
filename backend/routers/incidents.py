@@ -59,6 +59,8 @@ async def resolve_incident(
     if payload.resolution_notes:
         incident.resolution_notes = payload.resolution_notes
     db.commit()
+    from cache import clear_prefix
+    clear_prefix("admin_metrics")
 
     from routers.notifications import create_notification
     create_notification(db, current_user.id, "incident_resolved",
@@ -88,6 +90,8 @@ async def delete_incident(
 
     db.delete(incident)
     db.commit()
+    from cache import clear_prefix
+    clear_prefix("admin_metrics")
 
     from routers.notifications import create_notification
     if incident.user_id != current_user.id:

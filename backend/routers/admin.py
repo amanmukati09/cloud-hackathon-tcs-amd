@@ -9,11 +9,13 @@ import pandas as pd
 
 from models import get_db, User, Incident, ChatSession, ChatMessage, EscalationTicket
 from auth import get_current_user
+from cache import cached, clear_prefix
 
 router = APIRouter()
 
-# ── Metrics ───────────────────────────────────────────
+# ── Metrics (cached) ─────────────────────────────────
 @router.get("/admin/metrics")
+@cached("admin_metrics", ttl=60)
 async def get_admin_metrics(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -49,7 +51,6 @@ async def get_enhanced_analytics(
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-
     incidents = db.query(Incident).all()
     if not incidents:
         return {"trend": [], "components": [], "mttr_by_severity": [], "heatmap": []}
@@ -103,19 +104,75 @@ async def get_enhanced_analytics(
         "heatmap": heatmap_data
     }
 
+# ── Predictions ───────────────────────────────────────
+@router.get("/admin/predictions")
+async def get_incident_predictions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    from agents.predictor import IncidentPredictor
+    import re as regex
+    incidents = db.query(Incident).all()
+    if not incidents:
+        return {"predictions": [], "risk_level": "LOW", "summary": "No data"}
+    data = []
+    for inc in incidents:
+        sev = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        comp = regex.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
+        data.append({
+            "date": inc.timestamp.strftime("%Y-%m-%d"),
+            "hour": inc.timestamp.hour,
+            "weekday": inc.timestamp.strftime("%A"),
+            "severity": sev.group(1) if sev else "UNKNOWN",
+            "component": comp.group(1).strip() if comp else "Unknown",
+            "anomaly_type": inc.anomaly_description[:50] if inc.anomaly_description else "Unknown",
+            "status": inc.status
+        })
+    predictor = IncidentPredictor()
+    return predictor.analyze_patterns(data)
+
+# ── Clusters ──────────────────────────────────────────
+@router.get("/admin/clusters")
+async def get_incident_clusters(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    from agents.clustering import IncidentClusterer
+    import re as regex
+    incidents = db.query(Incident).order_by(Incident.timestamp.desc()).limit(200).all()
+    if not incidents:
+        return {"clusters": [], "summary": "No incidents"}
+    data = []
+    for inc in incidents:
+        sev = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        data.append({
+            "id": inc.id,
+            "anomaly_description": inc.anomaly_description or "",
+            "root_cause": inc.root_cause or "",
+            "severity": sev.group(1) if sev else "UNKNOWN",
+            "component": "Unknown",
+            "status": inc.status,
+            "date": inc.timestamp.strftime("%Y-%m-%d")
+        })
+    clusterer = IncidentClusterer()
+    clusters = clusterer.cluster_incidents(data)
+    html = clusterer.render_clusters_html(clusters)
+    return {"clusters": clusters, "html": html}
+
 # ── User list ─────────────────────────────────────────
 @router.get("/admin/users")
 async def get_all_users(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    limit: int = 50  # 🔧 Reduced from 100
+    limit: int = 50
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    
-    # 🔧 Use a single optimized query with joins
     from sqlalchemy import func
-    
     users = db.query(
         User.id, User.full_name, User.email, User.is_admin, User.created_at,
         func.count(Incident.id).label('incident_count'),
@@ -125,7 +182,6 @@ async def get_all_users(
     ).group_by(User.id
     ).order_by(User.created_at.desc()
     ).limit(limit).all()
-    
     result = []
     for u in users:
         result.append({
@@ -138,9 +194,8 @@ async def get_all_users(
             "Joined": u.created_at.strftime("%Y-%m-%d") if u.created_at else ""
         })
     return result
-    
 
-# ── Check user exists ─────────────────────────────────
+# ── User exists ───────────────────────────────────────
 @router.get("/admin/users/{target_id}/exists")
 async def user_exists(
     target_id: int,
@@ -168,6 +223,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found.")
     db.delete(target)
     db.commit()
+    clear_prefix("admin_metrics")
     return {"status": "success", "message": f"User {target_id} purged."}
 
 # ── User incidents (admin) ────────────────────────────
@@ -181,12 +237,9 @@ async def get_user_incidents_admin(
         raise HTTPException(status_code=403, detail="Access Denied.")
     incidents = db.query(Incident).filter(Incident.user_id == target_id).order_by(Incident.timestamp.desc()).all()
     return [{
-        "ID": i.id,
-        "Date": i.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "Raw Logs": i.raw_logs,
-        "Anomaly Found": i.anomaly_description,
-        "Root Cause": i.root_cause,
-        "Remediation": i.remediation_action,
+        "ID": i.id, "Date": i.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "Raw Logs": i.raw_logs, "Anomaly Found": i.anomaly_description,
+        "Root Cause": i.root_cause, "Remediation": i.remediation_action,
         "Status": i.status
     } for i in incidents]
 
@@ -203,10 +256,8 @@ async def get_user_chats_admin(
         ChatSession.user_id == target_id
     ).order_by(ChatSession.id.desc(), ChatMessage.timestamp.asc()).all()
     return [{
-        "Session ID": m.session_id,
-        "Time": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "Role": m.role.upper(),
-        "Message Content": m.content
+        "Session ID": m.session_id, "Time": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "Role": m.role.upper(), "Message Content": m.content
     } for m in messages]
 
 # ── Escalations (admin) ───────────────────────────────
@@ -233,8 +284,7 @@ async def get_all_escalations(
 
 @router.post("/admin/escalations/{ticket_id}/answer")
 async def answer_escalation(
-    ticket_id: int,
-    payload: TicketAnswer,
+    ticket_id: int, payload: TicketAnswer,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -246,7 +296,6 @@ async def answer_escalation(
     ticket.answer = payload.answer
     ticket.status = "resolved"
     db.commit()
-
     from routers.notifications import create_notification
     ticket_owner = db.query(User).filter(User.id == ticket.user_id).first()
     if ticket_owner:
@@ -282,57 +331,16 @@ async def get_my_escalations(
         EscalationTicket.user_id == current_user.id
     ).order_by(EscalationTicket.created_at.desc()).all()
     return [{
-        "Ticket ID": t.id,
-        "Date": t.created_at.strftime("%Y-%m-%d %H:%M"),
-        "Question": t.question,
-        "Admin Answer": t.answer or "⏳ Pending Review...",
+        "Ticket ID": t.id, "Date": t.created_at.strftime("%Y-%m-%d %H:%M"),
+        "Question": t.question, "Admin Answer": t.answer or "⏳ Pending Review...",
         "Status": "🟢 OPEN" if t.status == "open" else "✅ RESOLVED"
     } for t in tickets]
 
-@router.get("/admin/predictions")
-async def get_incident_predictions(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get AI-powered incident predictions."""
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Access Denied.")
-    
-    from agents.predictor import IncidentPredictor
-    import re as regex
-    
-    # Fetch all incidents with details
-    incidents = db.query(Incident).all()
-    
-    if not incidents:
-        return {"predictions": [], "risk_level": "LOW", "summary": "No data for predictions"}
-    
-    # Prepare data for analysis
-    data = []
-    for inc in incidents:
-        severity_match = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
-        component_match = regex.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
-        
-        data.append({
-            "date": inc.timestamp.strftime("%Y-%m-%d"),
-            "hour": inc.timestamp.hour,
-            "weekday": inc.timestamp.strftime("%A"),
-            "severity": severity_match.group(1) if severity_match else "UNKNOWN",
-            "component": component_match.group(1).strip() if component_match else "Unknown",
-            "anomaly_type": inc.anomaly_description[:50] if inc.anomaly_description else "Unknown",
-            "status": inc.status
-        })
-    
-    predictor = IncidentPredictor()
-    return predictor.analyze_patterns(data)
-
+# ── Alert configuration ───────────────────────────────
 class AlertConfigRequest(BaseModel):
     slack_webhook: Optional[str] = None
     teams_webhook: Optional[str] = None
-    email: Optional[str] = None
-    alert_on_severity: str = "HIGH"  # Minimum severity to alert
 
-    
 @router.post("/admin/alerts/configure")
 async def configure_alerts(
     config: AlertConfigRequest,
@@ -341,12 +349,10 @@ async def configure_alerts(
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    
     from agents.alerting import AlertManager
-    alert_mgr = AlertManager()
-    alert_mgr.configure(slack_url=config.slack_webhook, teams_url=config.teams_webhook)
-    
-    return {"status": "success", "message": "Alert configuration updated"}
+    mgr = AlertManager()
+    mgr.configure(slack_url=config.slack_webhook, teams_url=config.teams_webhook)
+    return {"status": "success"}
 
 @router.post("/admin/alerts/test")
 async def test_alert(
@@ -355,56 +361,9 @@ async def test_alert(
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    
     from agents.alerting import AlertManager
-    alert_mgr = AlertManager()
-    
-    test_data = {
-        "id": "TEST-001",
-        "anomaly_type": "Test Alert",
-        "severity": "LOW",
-        "affected_component": "Alert System",
-        "description": "This is a test alert from AegisAI. If you see this, alerts are working!",
-        "root_cause": "Testing alert configuration",
-        "remediation": "No action needed - this is a test",
-        "timestamp": "Now"
-    }
-    
-    results = alert_mgr.send_incident_alert(test_data)
-    return {"status": "success", "results": results}
-
-@router.get("/admin/clusters")
-async def get_incident_clusters(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get AI-clustered incidents."""
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Access Denied.")
-    
-    from agents.clustering import IncidentClusterer
-    import re as regex
-    
-    incidents = db.query(Incident).order_by(Incident.timestamp.desc()).limit(200).all()
-    
-    if not incidents:
-        return {"clusters": [], "summary": "No incidents to cluster"}
-    
-    data = []
-    for inc in incidents:
-        severity_match = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
-        data.append({
-            "id": inc.id,
-            "anomaly_description": inc.anomaly_description or "",
-            "root_cause": inc.root_cause or "",
-            "severity": severity_match.group(1) if severity_match else "UNKNOWN",
-            "component": "Unknown",
-            "status": inc.status,
-            "date": inc.timestamp.strftime("%Y-%m-%d")
-        })
-    
-    clusterer = IncidentClusterer()
-    clusters = clusterer.cluster_incidents(data)
-    html = clusterer.render_clusters_html(clusters)
-    
-    return {"clusters": clusters, "html": html}
+    mgr = AlertManager()
+    test_data = {"id": "TEST", "anomaly_type": "Test", "severity": "LOW",
+                 "affected_component": "Alert", "description": "Test alert",
+                 "root_cause": "Testing", "remediation": "None", "timestamp": "Now"}
+    return {"status": "success", "results": mgr.send_incident_alert(test_data)}

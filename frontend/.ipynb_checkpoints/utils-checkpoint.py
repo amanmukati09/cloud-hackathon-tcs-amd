@@ -1,10 +1,11 @@
+import os
 import re
 import time
 import gradio as gr
 import pandas as pd
 from datetime import datetime
 
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 def is_valid_email(email): 
     return re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email)
