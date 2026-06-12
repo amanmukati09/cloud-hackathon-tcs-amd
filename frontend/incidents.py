@@ -95,3 +95,22 @@ def delete_incident(incident_id, token):
     except Exception as e:
         gr.Warning(f"❌ Error: {e}")
     return fetch_history(token)
+
+def generate_runbook(incident_id, token):
+    """Generate a runbook from an incident."""
+    if not incident_id or not token:
+        return "<p style='color:#94a3b8;text-align:center;'>Select a resolved incident and click 'Generate Runbook'</p>"
+    
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/incidents/{int(incident_id)}/runbook",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=60
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("html", "*No runbook generated*")
+        else:
+            return "<p style='color:#ef4444;'>Failed to generate runbook</p>"
+    except Exception as e:
+        return f"<p style='color:#ef4444;'>Error: {str(e)}</p>"

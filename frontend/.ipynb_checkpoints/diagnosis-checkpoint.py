@@ -177,3 +177,23 @@ def generate_rca_tree(logs_text, token):
             return gr.update(value="*Failed to generate RCA tree*")
     except Exception as e:
         return gr.update(value=f"*Error: {str(e)}*")
+
+def generate_code_fix(logs_text, token):
+    """Generate code fixes for an incident."""
+    if not token or not logs_text.strip():
+        return "<p style='color:#94a3b8;text-align:center;'>Paste logs and click 'Code Fix' to generate patches</p>"
+    
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/diagnose/code-fix",
+            json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=120
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("html", "*No fixes generated*")
+        else:
+            return "<p style='color:#ef4444;'>Failed to generate code fixes</p>"
+    except Exception as e:
+        return f"<p style='color:#ef4444;'>Error: {str(e)}</p>"

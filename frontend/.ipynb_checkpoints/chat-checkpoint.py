@@ -276,3 +276,20 @@ def send_chat_msg_stream(message, session_id, history, token):
     except Exception as e:
         history[-1]["content"] = f"❌ Error: {str(e)}"
         yield "", history, session_id
+
+def analyze_sentiment(message, token):
+    """Analyze sentiment of a message."""
+    if not message.strip() or not token:
+        return gr.update(value="")
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/chat/analyze-sentiment?message={message.strip()}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return gr.update(value=data.get("html", ""))
+    except:
+        pass
+    return gr.update(value="")

@@ -231,3 +231,34 @@ async def export_incident_pdf(
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/pdf",
                              headers={"Content-Disposition": f"attachment; filename=aegis_incident_{incident_id}_report.pdf"})
+
+@router.get("/incidents/{incident_id}/runbook")
+async def generate_runbook(
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate a runbook from a resolved incident."""
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    
+    from agents.runbook import RunbookGenerator
+    
+    incident_data = {
+        "id": incident.id,
+        "anomaly_type": incident.anomaly_description or "Unknown",
+        "severity": "MEDIUM",
+        "root_cause": incident.root_cause or "Not determined",
+        "remediation": incident.remediation_action or "No actions recorded",
+        "resolution_notes": incident.resolution_notes or "",
+        "status": incident.status
+    }
+    
+    generator = RunbookGenerator()
+    runbook = generator.generate_runbook(incident_data)
+    html = generator.render_runbook_html(runbook)
+    
+    return {"runbook": runbook, "html": html}

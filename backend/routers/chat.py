@@ -1,16 +1,18 @@
 # backend/routers/chat.py
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+import json
+import asyncio
+
 from models import get_db, User, ChatSession, ChatMessage, Incident
 from auth import get_current_user
 from agents.chat import ChatAgent
 from guardrails import guard
 from fastapi.concurrency import run_in_threadpool
-import asyncio
-from fastapi.responses import StreamingResponse
-import json
 
 router = APIRouter()
 chat_agent = ChatAgent()
@@ -35,7 +37,10 @@ class ChatRequest(BaseModel):
 class RenameRequest(BaseModel):
     new_title: str
 
-# ── Send message (with multi‑turn history + USER‑FILTERED RAG) ──
+class ModelSwitchRequest(BaseModel):
+    model: str
+
+# ── Send message (with multi‑turn history + RAG + Sentiment) ──
 @router.post("/chat/message")
 async def send_chat_message(
     req: ChatRequest,
@@ -48,56 +53,56 @@ async def send_chat_message(
     safe_message, _ = guard.mask_pii(req.message)
     security_context = guard.get_ollama_security_prompt()
 
-    # ─── USER‑FILTERED RAG: Search ChromaDB ───
+    # ─── RAG: Search ChromaDB ───
     rag_context = ""
     try:
         from chroma_store import IncidentStore
         store = IncidentStore()
-        results = store.search_similar(safe_message, top_k=20)  # get more candidates for filtering
-
+        results = store.search_similar(safe_message, top_k=20)
         if results and results.get('ids') and results['ids'][0]:
             rag_parts = []
             count_added = 0
-            max_rag = 3 if not current_user.is_admin else 10  # 🎯 user‑specific limit
-
+            max_rag = 3 if not current_user.is_admin else 10
             for i, incident_id in enumerate(results['ids'][0]):
                 if count_added >= max_rag:
                     break
-
                 inc = db.query(Incident).filter(Incident.id == int(incident_id)).first()
                 if not inc:
                     continue
-
-                # 🎯 FILTER: standard user only sees their own incidents
                 if not current_user.is_admin and inc.user_id != current_user.id:
                     continue
-
                 similarity = round((1 - results['distances'][0][i]) * 100, 1)
                 rag_parts.append(
-                    f"Incident #{inc.id} ({inc.timestamp.strftime('%Y-%m-%d')}, "
-                    f"{similarity}% match): "
-                    f"Anomaly: {inc.anomaly_description or 'N/A'}. "
-                    f"Root Cause: {inc.root_cause or 'N/A'}. "
-                    f"Remediation: {inc.remediation_action or 'N/A'}. "
-                    f"Status: {inc.status}."
+                    f"Incident #{inc.id} ({inc.timestamp.strftime('%Y-%m-%d')}, {similarity}% match): "
+                    f"Root Cause: {inc.root_cause or 'N/A'}. Remediation: {inc.remediation_action or 'N/A'}."
                 )
                 count_added += 1
-
             if rag_parts:
                 user_type = "ADMIN (all incidents)" if current_user.is_admin else "USER (your incidents only)"
-                rag_context = "\n".join(
-                    [f"[RELEVANT PAST INCIDENTS - {user_type}]",
-                     *rag_parts,
-                     "[/RELEVANT PAST INCIDENTS]"]
-                )
+                rag_context = "\n".join([f"[RELEVANT PAST INCIDENTS - {user_type}]", *rag_parts, "[/RELEVANT PAST INCIDENTS]"])
     except Exception as e:
         print(f"RAG search failed: {e}")
 
+    # ─── Sentiment Analysis ───
+    from agents.sentiment import SentimentAnalyzer
+    sentiment_analyzer = SentimentAnalyzer()
+    sentiment_result = sentiment_analyzer.analyze_message(safe_message)
+    
+    escalation_note = ""
+    if sentiment_result.get("needs_escalation"):
+        escalation_note = (
+            "\n[⚠️ USER IS FRUSTRATED - Be empathetic, acknowledge their frustration, "
+            "and prioritize resolving their issue quickly. Offer to escalate to a human admin if needed.]"
+        )
+
     # Build enforced prompt
+    prompt_parts = [security_context]
     if rag_context:
-        enforced_prompt = f"{security_context}\n\n{rag_context}\n\nUser Request:\n{safe_message}"
-    else:
-        enforced_prompt = f"{security_context}\n\nUser Request:\n{safe_message}"
+        prompt_parts.append(rag_context)
+    if escalation_note:
+        prompt_parts.append(escalation_note)
+    prompt_parts.append(f"User Request:\n{safe_message}")
+    enforced_prompt = "\n\n".join(prompt_parts)
 
     # ── Session handling ──
     session_id = req.session_id
@@ -159,9 +164,141 @@ async def send_chat_message(
     if temp_user:
         chat_format.append([temp_user, ""])
 
-    return {"session_id": session_id, "history": chat_format}
+    return {
+        "session_id": session_id,
+        "history": chat_format,
+        "sentiment": sentiment_result
+    }
 
-# ── List sessions ─────────────────────────────────────
+# ── Streaming endpoint ──
+@router.post("/chat/message/stream")
+async def send_chat_message_stream(
+    req: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if guard.is_prompt_injection(req.message):
+        raise HTTPException(status_code=400, detail="Security Exception")
+
+    safe_message, _ = guard.mask_pii(req.message)
+    security_context = guard.get_ollama_security_prompt()
+
+    # RAG context
+    rag_context = ""
+    try:
+        from chroma_store import IncidentStore
+        store = IncidentStore()
+        results = store.search_similar(safe_message, top_k=20)
+        if results and results.get('ids') and results['ids'][0]:
+            rag_parts = []
+            count_added = 0
+            max_rag = 3 if not current_user.is_admin else 10
+            for i, incident_id in enumerate(results['ids'][0]):
+                if count_added >= max_rag:
+                    break
+                inc = db.query(Incident).filter(Incident.id == int(incident_id)).first()
+                if not inc:
+                    continue
+                if not current_user.is_admin and inc.user_id != current_user.id:
+                    continue
+                rag_parts.append(f"Incident #{inc.id}: {inc.root_cause or 'N/A'}. Fix: {inc.remediation_action or 'N/A'}")
+                count_added += 1
+            if rag_parts:
+                rag_context = "\n".join(["[RELEVANT PAST INCIDENTS]", *rag_parts, "[/RELEVANT PAST INCIDENTS]"])
+    except:
+        pass
+
+    # Sentiment
+    from agents.sentiment import SentimentAnalyzer
+    sentiment_analyzer = SentimentAnalyzer()
+    sentiment_result = sentiment_analyzer.analyze_message(safe_message)
+    
+    escalation_note = ""
+    if sentiment_result.get("needs_escalation"):
+        escalation_note = "\n[⚠️ USER IS FRUSTRATED - Be empathetic and prioritize their issue.]"
+
+    prompt_parts = [security_context]
+    if rag_context:
+        prompt_parts.append(rag_context)
+    if escalation_note:
+        prompt_parts.append(escalation_note)
+    prompt_parts.append(f"User Request:\n{safe_message}")
+    enforced_prompt = "\n\n".join(prompt_parts)
+
+    # Session handling
+    session_id = req.session_id
+    if not session_id:
+        title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
+        new_session = ChatSession(user_id=current_user.id, title=title)
+        db.add(new_session)
+        db.commit()
+        db.refresh(new_session)
+        session_id = new_session.id
+
+    user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
+    db.add(user_msg)
+    db.commit()
+
+    previous_msgs = db.query(ChatMessage).filter(
+        ChatMessage.session_id == session_id,
+        ChatMessage.id < user_msg.id
+    ).order_by(ChatMessage.timestamp.asc()).all()
+    history_for_llm = [{"role": m.role, "content": m.content} for m in previous_msgs]
+
+    async def event_stream():
+        full_response = ""
+        async with ai_queue:
+            for token in chat_agent.generate_response_stream(enforced_prompt, history_for_llm):
+                full_response += token
+                yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"
+        
+        if guard.is_destructive(full_response):
+            full_response = "🚨 SECURITY INTERVENTION: Destructive command blocked."
+        elif guard.is_native_refusal(full_response):
+            full_response = "🚨 SECURITY EXCEPTION: Request violates guardrails."
+        
+        ai_msg = ChatMessage(session_id=session_id, role="ai", content=full_response)
+        db.add(ai_msg)
+        db.commit()
+        
+        yield f"data: {json.dumps({'done': True, 'session_id': session_id, 'sentiment': sentiment_result})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+# ── Sentiment analysis endpoint ──
+@router.post("/chat/analyze-sentiment")
+async def analyze_sentiment(
+    message: str = Query(...),
+    current_user: User = Depends(get_current_user)
+):
+    from agents.sentiment import SentimentAnalyzer
+    analyzer = SentimentAnalyzer()
+    result = analyzer.analyze_message(message)
+    html = analyzer.render_sentiment_html(result, message)
+    return {"result": result, "html": html}
+
+# ── Model endpoints ──
+@router.get("/chat/models")
+async def get_available_models():
+    return {
+        "models": [
+            {"id": "llama3", "name": "Llama 3", "description": "Fast, general purpose", "icon": "🦙"},
+            {"id": "deepseek-r1:7b", "name": "DeepSeek R1", "description": "Best reasoning & analysis", "icon": "🧠"},
+            {"id": "mistral:7b", "name": "Mistral 7B", "description": "Quick & efficient", "icon": "⚡"}
+        ],
+        "current": chat_agent.model
+    }
+
+@router.post("/chat/model/switch")
+async def switch_model(
+    req: ModelSwitchRequest,
+    current_user: User = Depends(get_current_user)
+):
+    if chat_agent.set_model(req.model):
+        return {"status": "success", "model": req.model}
+    return {"status": "error", "message": f"Model '{req.model}' not available"}
+
+# ── List sessions ──
 @router.get("/chat/sessions")
 async def get_chat_sessions(
     current_user: User = Depends(get_current_user),
@@ -179,7 +316,7 @@ async def get_chat_sessions(
         result[str(s.id)] = title
     return result
 
-# ── Get session history ───────────────────────────────
+# ── Get session history ──
 @router.get("/chat/sessions/{session_id}")
 async def get_chat_history(
     session_id: int,
@@ -204,7 +341,7 @@ async def get_chat_history(
             temp_user = ""
     return chat_format
 
-# ── Search chat history ───────────────────────────────
+# ── Search chat history ──
 @router.get("/chat/search")
 async def search_chat_history(
     query: str,
@@ -242,7 +379,7 @@ async def search_chat_history(
         })
     return {"results": results, "query": query.strip()}
 
-# ── Delete session ────────────────────────────────────
+# ── Delete session ──
 @router.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(
     session_id: int,
@@ -269,7 +406,7 @@ async def delete_chat_session(
                         f"Chat session '{session.title}' (ID: {session_id}) has been deleted.")
     return {"status": "success", "message": f"Chat session {session_id} deleted"}
 
-# ── Rename session ────────────────────────────────────
+# ── Rename session ──
 @router.put("/chat/sessions/{session_id}/rename")
 async def rename_chat_session(
     session_id: int,
@@ -296,118 +433,3 @@ async def rename_chat_session(
                         "Chat session renamed",
                         f"Session '{old_title}' renamed to '{new_title}' (ID: {session_id}).")
     return {"status": "success", "new_title": new_title}
-
-# 🆕 MODEL SWITCHING ENDPOINTS
-
-class ModelSwitchRequest(BaseModel):
-    model: str
-
-@router.get("/chat/models")
-async def get_available_models():
-    """List all available AI models."""
-    return {
-        "models": [
-            {"id": "llama3", "name": "Llama 3", "description": "Fast, general purpose", "icon": "🦙"},
-            {"id": "deepseek-r1:7b", "name": "DeepSeek R1", "description": "Best reasoning & analysis", "icon": "🧠"},
-            {"id": "mistral:7b", "name": "Mistral 7B", "description": "Quick & efficient", "icon": "⚡"}
-        ],
-        "current": chat_agent.model
-    }
-
-@router.post("/chat/model/switch")
-async def switch_model(
-    req: ModelSwitchRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Switch the AI model for the current user."""
-    if chat_agent.set_model(req.model):
-        return {"status": "success", "model": req.model}
-    return {"status": "error", "message": f"Model '{req.model}' not available"}
-
-@router.post("/chat/message/stream")
-async def send_chat_message_stream(
-    req: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Streaming chat endpoint – tokens sent as they're generated."""
-    
-    if guard.is_prompt_injection(req.message):
-        raise HTTPException(status_code=400, detail="Security Exception")
-
-    safe_message, _ = guard.mask_pii(req.message)
-    security_context = guard.get_ollama_security_prompt()
-
-    # RAG context (same as before)
-    rag_context = ""
-    try:
-        from chroma_store import IncidentStore
-        store = IncidentStore()
-        results = store.search_similar(safe_message, top_k=20)
-        if results and results.get('ids') and results['ids'][0]:
-            rag_parts = []
-            count_added = 0
-            max_rag = 3 if not current_user.is_admin else 10
-            for i, incident_id in enumerate(results['ids'][0]):
-                if count_added >= max_rag:
-                    break
-                inc = db.query(Incident).filter(Incident.id == int(incident_id)).first()
-                if not inc:
-                    continue
-                if not current_user.is_admin and inc.user_id != current_user.id:
-                    continue
-                rag_parts.append(f"Incident #{inc.id}: {inc.root_cause or 'N/A'}. Fix: {inc.remediation_action or 'N/A'}")
-                count_added += 1
-            if rag_parts:
-                rag_context = "\n".join(["[RELEVANT PAST INCIDENTS]", *rag_parts, "[/RELEVANT PAST INCIDENTS]"])
-    except:
-        pass
-
-    if rag_context:
-        enforced_prompt = f"{security_context}\n\n{rag_context}\n\nUser Request:\n{safe_message}"
-    else:
-        enforced_prompt = f"{security_context}\n\nUser Request:\n{safe_message}"
-
-    # Session handling
-    session_id = req.session_id
-    if not session_id:
-        title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
-        new_session = ChatSession(user_id=current_user.id, title=title)
-        db.add(new_session)
-        db.commit()
-        db.refresh(new_session)
-        session_id = new_session.id
-
-    # Save user message
-    user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
-    db.add(user_msg)
-    db.commit()
-
-    # Fetch history
-    previous_msgs = db.query(ChatMessage).filter(
-        ChatMessage.session_id == session_id,
-        ChatMessage.id < user_msg.id
-    ).order_by(ChatMessage.timestamp.asc()).all()
-    history_for_llm = [{"role": m.role, "content": m.content} for m in previous_msgs]
-
-    # Stream response
-    async def event_stream():
-        full_response = ""
-        async with ai_queue:
-            for token in chat_agent.generate_response_stream(enforced_prompt, history_for_llm):
-                full_response += token
-                yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"
-        
-        # Save full AI response
-        if guard.is_destructive(full_response):
-            full_response = "🚨 SECURITY INTERVENTION: Destructive command blocked."
-        elif guard.is_native_refusal(full_response):
-            full_response = "🚨 SECURITY EXCEPTION: Request violates guardrails."
-        
-        ai_msg = ChatMessage(session_id=session_id, role="ai", content=full_response)
-        db.add(ai_msg)
-        db.commit()
-        
-        yield f"data: {json.dumps({'done': True, 'session_id': session_id})}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")

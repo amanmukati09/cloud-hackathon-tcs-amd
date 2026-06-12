@@ -6,13 +6,19 @@ import requests
 from css import custom_css, saas_theme
 from utils import clear_status, BACKEND_URL
 from auth import api_login, api_register, logout
-from diagnosis import diagnose_logs, fetch_history, search_similar_incidents, upload_log_files, auto_remediate, generate_rca_tree
+from diagnosis import (
+    diagnose_logs, fetch_history, search_similar_incidents, upload_log_files,
+    auto_remediate, generate_rca_tree, generate_code_fix
+)
 from chat import (
     get_chat_sessions, load_chat_session, send_chat_msg_stream, search_chats,
     load_chat_by_id, delete_chat_session, rename_chat_session,
     get_available_models, switch_model
 )
-from incidents import resolve_incident, get_incident_details, export_csv, export_incident_pdf, delete_incident
+from incidents import (
+    resolve_incident, get_incident_details, export_csv, export_incident_pdf,
+    delete_incident, generate_runbook
+)
 from tickets import submit_escalation, fetch_my_tickets, load_admin_tickets, answer_escalation
 from notifications import fetch_notifications, mark_notifications_read
 from admin import load_admin_data, fetch_analytics, purge_user, inspect_user_data, fetch_predictions, fetch_clusters
@@ -32,6 +38,12 @@ def dismiss_workflow():
 
 def dismiss_rca():
     return "<p style='color:#94a3b8;text-align:center;'>Click 'RCA Tree' to visualize root cause analysis</p>"
+
+def dismiss_code_fix():
+    return "<p style='color:#94a3b8;text-align:center;'>Click 'Code Fix' to generate patches for this incident</p>"
+
+def dismiss_runbook():
+    return gr.update(visible=False), "<p style='color:#94a3b8;text-align:center;'>Select a resolved incident and click 'Generate Runbook'</p>"
 
 def save_alert_config(slack, teams, token):
     try:
@@ -59,6 +71,23 @@ def send_test_alert(token):
     except:
         pass
     return gr.update(value="Failed to send test alert")
+
+def analyze_sentiment_ui(message, token):
+    """Analyze sentiment of a message for UI display."""
+    if not message.strip() or not token:
+        return ""
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/chat/analyze-sentiment?message={message.strip()}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("html", "")
+    except:
+        pass
+    return ""
 
 # --- UI LAYOUT ---
 with gr.Blocks(title="AegisAI") as demo:
@@ -196,6 +225,7 @@ with gr.Blocks(title="AegisAI") as demo:
                             diagnose_btn = gr.Button("Analyze Logs", variant="primary")
                             auto_remediate_btn = gr.Button("Auto-Remediate", variant="primary")
                             rca_tree_btn = gr.Button("RCA Tree", variant="primary")
+                            code_fix_btn = gr.Button("Code Fix", variant="primary")
                             clear_btn = gr.Button("Clear", variant="stop")
                         with gr.Row():
                             discuss_btn = gr.Button("Discuss with AI", variant="secondary")
@@ -226,6 +256,12 @@ with gr.Blocks(title="AegisAI") as demo:
                             gr.Markdown("### Root Cause Analysis Tree", scale=4)
                             dismiss_rca_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
                         rca_tree_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Click 'RCA Tree' to visualize root cause analysis</p>")
+                with gr.Row() as code_fix_row:
+                    with gr.Column(elem_classes="glass-card"):
+                        with gr.Row():
+                            gr.Markdown("### Generated Code Fixes", scale=4)
+                            dismiss_code_fix_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
+                        code_fix_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Click 'Code Fix' to generate patches for this incident</p>")
 
             # AI COPILOT
             with gr.Tab("AI Copilot"):
@@ -269,6 +305,7 @@ with gr.Blocks(title="AegisAI") as demo:
                         with gr.Row():
                             chat_input = gr.Textbox(show_label=False, placeholder="Ask the AI Copilot anything...", scale=4, lines=1, max_lines=4)
                             chat_send_btn = gr.Button("Send", variant="primary", scale=1)
+                        sentiment_output = gr.HTML(value="")
 
             # INCIDENT HISTORY
             with gr.Tab("Incident History"):
@@ -297,7 +334,15 @@ with gr.Blocks(title="AegisAI") as demo:
                         with gr.Row():
                             resolve_btn = gr.Button("Mark as Resolved", variant="primary")
                             delete_incident_btn = gr.Button("Delete Incident", variant="stop")
-                        export_selected_pdf_btn = gr.Button("Download PDF Report", variant="secondary")
+                            export_selected_pdf_btn = gr.Button("Download PDF Report", variant="secondary")
+                        with gr.Row():
+                            runbook_btn = gr.Button("Generate Runbook", variant="primary")
+                with gr.Row(visible=False) as runbook_row:
+                    with gr.Column(elem_classes="glass-card"):
+                        with gr.Row():
+                            gr.Markdown("### Generated Runbook", scale=4)
+                            dismiss_runbook_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
+                        runbook_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Select a resolved incident and click 'Generate Runbook'</p>")
 
             # SUPPORT TICKETS
             with gr.Tab("Support Tickets"):
@@ -370,6 +415,7 @@ with gr.Blocks(title="AegisAI") as demo:
 
     dismiss_workflow_btn.click(fn=dismiss_workflow, outputs=[workflow_output])
     dismiss_rca_btn.click(fn=dismiss_rca, outputs=[rca_tree_output])
+    dismiss_code_fix_btn.click(fn=dismiss_code_fix, outputs=[code_fix_output])
 
     login_btn.click(
         fn=api_login, inputs=[log_email,log_pass],
@@ -407,15 +453,43 @@ with gr.Blocks(title="AegisAI") as demo:
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input,session_token], outputs=[anomaly_out,rc_out,remed_out,history_table])
     auto_remediate_btn.click(fn=auto_remediate, inputs=[logs_input,gr.State(False),session_token], outputs=[anomaly_out,rc_out,remed_out,workflow_output,history_table])
     rca_tree_btn.click(fn=generate_rca_tree, inputs=[logs_input,session_token], outputs=[rca_tree_output])
+    code_fix_btn.click(fn=generate_code_fix, inputs=[logs_input,session_token], outputs=[code_fix_output])
     refresh_btn.click(fn=fetch_history, inputs=[session_token], outputs=[history_table])
     discuss_btn.click(
         fn=lambda l,a:(gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"),[],None,gr.update(value=None),gr.update(selected="tab_chat")) if l.strip() else (gr.update(),gr.update(),gr.update(),gr.update(),gr.update()),
         inputs=[logs_input,anomaly_out], outputs=[chat_input,chatbot_ui,current_chat_id,chat_session_dropdown,tabs_manager], queue=False
     )
 
-    chat_send_btn.click(fn=send_chat_msg_stream, inputs=[chat_input,current_chat_id,chatbot_ui,session_token], outputs=[chat_input,chatbot_ui,current_chat_id])
-    chat_input.submit(fn=send_chat_msg_stream, inputs=[chat_input,current_chat_id,chatbot_ui,session_token], outputs=[chat_input,chatbot_ui,current_chat_id])
-    new_chat_btn.click(fn=lambda:("",[],None,gr.update(value=None)), outputs=[chat_input,chatbot_ui,current_chat_id,chat_session_dropdown], queue=False)
+    # Chat with sentiment
+    def send_with_sentiment(message, session_id, history, token):
+        gen = send_chat_msg_stream(message, session_id, history, token)
+        for output in gen:
+            if len(output) == 3:
+                msg, hist, sid = output
+                yield msg, hist, sid, gr.update()
+            else:
+                try:
+                    yield output[0], output[1], output[2], gr.update()
+                except:
+                    yield gr.update(), gr.update(), gr.update(), gr.update()
+        sentiment_html = analyze_sentiment_ui(message, token)
+        yield gr.update(), gr.update(), gr.update(), sentiment_html
+
+    chat_send_btn.click(
+        fn=send_with_sentiment,
+        inputs=[chat_input, current_chat_id, chatbot_ui, session_token],
+        outputs=[chat_input, chatbot_ui, current_chat_id, sentiment_output]
+    )
+    chat_input.submit(
+        fn=send_with_sentiment,
+        inputs=[chat_input, current_chat_id, chatbot_ui, session_token],
+        outputs=[chat_input, chatbot_ui, current_chat_id, sentiment_output]
+    )
+    new_chat_btn.click(
+        fn=lambda: ("", [], None, ""),
+        outputs=[chat_input, chatbot_ui, current_chat_id, sentiment_output],
+        queue=False
+    )
     model_selector.change(fn=switch_model, inputs=[model_selector,session_token], outputs=[])
     chat_session_dropdown.change(fn=load_chat_session, inputs=[chat_session_dropdown,session_token], outputs=[chatbot_ui,current_chat_id])
     refresh_chat_btn.click(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown])
@@ -464,6 +538,17 @@ with gr.Blocks(title="AegisAI") as demo:
     delete_incident_btn.click(fn=delete_incident, inputs=[resolve_incident_id,session_token], outputs=[history_table]
     ).then(fn=lambda:(gr.update(visible=False),gr.update(value=None),gr.update(value="*Deleted*")),
         outputs=[resolve_incident_row,resolve_incident_id,incident_details_md])
+
+    # Runbook generation
+    runbook_btn.click(
+        fn=generate_runbook,
+        inputs=[resolve_incident_id, session_token],
+        outputs=[runbook_output]
+    ).then(
+        fn=lambda: gr.update(visible=True),
+        outputs=[runbook_row]
+    )
+    dismiss_runbook_btn.click(fn=dismiss_runbook, outputs=[runbook_row, runbook_output])
 
     export_csv_btn.click(fn=export_csv, inputs=[session_token], outputs=[download_file]
     ).then(fn=lambda:gr.update(visible=True), outputs=[download_row])

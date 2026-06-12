@@ -197,3 +197,33 @@ async def generate_rca_tree(
     html = rca_agent.render_tree_html(tree_data)
     
     return {"tree_data": tree_data, "html": html}
+
+@router.post("/diagnose/code-fix")
+async def generate_code_fix(
+    request: IncidentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate code fixes for an incident."""
+    from agents.code_fixer import CodeFixerAgent
+    from agents.monitor import MonitorAgent
+    from agents.diagnosis import DiagnosisAgent
+    
+    safe_logs = []
+    for log_line in request.logs:
+        masked_line, _ = guard.mask_pii(log_line)
+        safe_logs.append(masked_line)
+    
+    monitor = MonitorAgent()
+    diagnosis = DiagnosisAgent()
+    code_fixer = CodeFixerAgent()
+    
+    anomaly = monitor.detect_anomaly(safe_logs)
+    if not anomaly.get("anomaly_detected"):
+        return {"html": "<p style='color:#10b981;text-align:center;'>✅ No issues detected. No fixes needed.</p>"}
+    
+    root_cause = diagnosis.analyze_root_cause(anomaly, safe_logs)
+    fix_data = code_fixer.generate_fix(anomaly, root_cause, safe_logs)
+    html = code_fixer.render_fixes_html(fix_data)
+    
+    return {"fix_data": fix_data, "html": html}
