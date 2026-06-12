@@ -149,3 +149,33 @@ async def find_similar_incidents(
     except Exception as e:
         print(f"Similarity search error: {e}")
         return {"similar_incidents": []}
+
+@router.post("/diagnose/rca-tree")
+async def generate_rca_tree(
+    request: IncidentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate a visual RCA tree for an incident."""
+    from agents.rca_tree import RCATreeAgent
+    from agents.monitor import MonitorAgent
+    from agents.diagnosis import DiagnosisAgent
+    
+    safe_logs = []
+    for log_line in request.logs:
+        masked_line, _ = guard.mask_pii(log_line)
+        safe_logs.append(masked_line)
+    
+    monitor = MonitorAgent()
+    diagnosis = DiagnosisAgent()
+    rca_agent = RCATreeAgent()
+    
+    anomaly = monitor.detect_anomaly(safe_logs)
+    if not anomaly.get("anomaly_detected"):
+        return {"error": "No anomaly detected", "html": "<p>✅ No issues found in logs.</p>"}
+    
+    root_cause = diagnosis.analyze_root_cause(anomaly, safe_logs)
+    tree_data = rca_agent.generate_rca_tree(anomaly, root_cause, safe_logs)
+    html = rca_agent.render_tree_html(tree_data)
+    
+    return {"tree_data": tree_data, "html": html}
