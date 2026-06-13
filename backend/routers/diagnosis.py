@@ -237,3 +237,23 @@ async def generate_code_fix(
     html = code_fixer.render_fixes_html(fix_data)
     
     return {"fix_data": fix_data, "html": html}
+
+@router.post("/diagnose/image")
+async def diagnose_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze an uploaded image for incidents."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Read image bytes
+    image_bytes = await file.read()
+    if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
+    
+    from agents.image_analyzer import ImageAnalyzer
+    analyzer = ImageAnalyzer()
+    result = analyzer.analyze_image_for_incidents(image_bytes)
+    
+    return result

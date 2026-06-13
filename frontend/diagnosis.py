@@ -245,3 +245,43 @@ def check_async_task(task_id, token):
     except:
         pass
     return "Failed to check task status"
+def analyze_image(file, token):
+    """Upload and analyze an image for incidents. Returns (html, extracted_text)."""
+    if not file or not token:
+        return "<p style='color:#94a3b8;text-align:center;'>Upload a screenshot to analyze</p>", ""
+    
+    try:
+        with open(file.name, "rb") as f:
+            files = {"file": (file.name.split("/")[-1], f, "image/png")}
+            res = requests.post(
+                f"{BACKEND_URL}/diagnose/image",
+                files=files,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=60
+            )
+        
+        if res.status_code == 200:
+            data = res.json()
+            if not data.get("text_found"):
+                return "<p style='color:#f59e0b;text-align:center;'>⚠️ No text found in image</p>", ""
+            
+            sev_colors = {"CRITICAL": "#ef4444", "HIGH": "#f59e0b", "MEDIUM": "#3b82f6", "LOW": "#10b981", "UNKNOWN": "#6b7280"}
+            sev = data.get("severity", "UNKNOWN")
+            sev_color = sev_colors.get(sev, "#6b7280")
+            
+            extracted = data.get("extracted_text", "")
+            html = f"""
+            <div style="background:rgba(30,41,59,0.8);border-radius:10px;padding:16px;">
+                <h3>📸 Image Analysis</h3>
+                <p><strong>Severity:</strong> <span style="color:{sev_color};font-weight:bold;">{sev}</span></p>
+                <p><strong>Summary:</strong> {data.get('summary', 'N/A')}</p>
+                <p><strong>Affected System:</strong> {data.get('affected_system', 'N/A')}</p>
+                <p><strong>Recommended:</strong> {data.get('recommended_action', 'N/A')}</p>
+                <p style="font-size:0.85em;color:#94a3b8;">📋 Extracted text has been placed in the logs area below. Click <b>Analyze Logs</b> to diagnose.</p>
+            </div>
+            """
+            return html, extracted
+        else:
+            return f"<p style='color:#ef4444;'>Error: {res.status_code}</p>", ""
+    except Exception as e:
+        return f"<p style='color:#ef4444;'>Error: {str(e)}</p>", ""

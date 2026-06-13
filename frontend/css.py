@@ -185,6 +185,40 @@ footer { display: none !important; }
     padding: 12px !important;
     text-align: center !important;
 }
+
+/* Knowledge Base scrollable results */
+.kb-results-scroll {
+    max-height: 500px !important;
+    overflow-y: auto !important;
+    padding-right: 8px !important;
+    margin-top: 8px !important;
+    border: 1px solid rgba(255,255,255,0.05) !important;
+    border-radius: 8px !important;
+    background: rgba(0,0,0,0.1) !important;
+}
+
+/* Custom scrollbar for KB results */
+.kb-results-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+.kb-results-scroll::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.1);
+    border-radius: 3px;
+}
+.kb-results-scroll::-webkit-scrollbar-thumb {
+    background: rgba(56,189,248,0.3);
+    border-radius: 3px;
+}
+.kb-results-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(56,189,248,0.5);
+}
+
+/* Make article cards inside scroll look clean */
+.kb-results-scroll > div {
+    padding-right: 4px;
+}
+
+
 .health-card h2 { font-size: 1.5rem !important; margin: 4px 0 !important; }
 .health-card p { margin: 2px 0 !important; font-size: 0.8rem !important; }
 """

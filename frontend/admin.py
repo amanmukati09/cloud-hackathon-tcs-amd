@@ -565,3 +565,98 @@ def fetch_recent_activity(token):
     except:
         pass
     return pd.DataFrame()
+
+def generate_knowledge_base(token):
+    """Generate knowledge base articles."""
+    if not token:
+        return "<p style='color:#94a3b8;text-align:center;'>Login as admin to generate</p>", pd.DataFrame()
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/admin/knowledge-base/generate",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=120
+        )
+        if res.status_code == 200:
+            data = res.json()
+            articles = data.get("articles", [])
+            if articles:
+                df = pd.DataFrame(articles)
+                df = df[["title", "category", "difficulty", "estimated_time", "source_incident_id"]]
+                df.columns = ["Title", "Category", "Difficulty", "Est. Time", "Source ID"]
+                return f"✅ Generated {len(articles)} articles from resolved incidents!", df
+            return "No resolved incidents found to generate articles.", pd.DataFrame()
+    except Exception as e:
+        return f"❌ Error: {str(e)}", pd.DataFrame()
+
+        
+def search_knowledge_base(query, token):
+    """Search knowledge base."""
+    if not query or not query.strip() or not token:
+        return "<p style='color:#94a3b8;text-align:center;'>Type a query and click Search</p>"
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/admin/knowledge-base/search?query={query.strip()}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=120
+        )
+        if res.status_code == 200:
+            data = res.json()
+            articles = data.get("articles", [])
+            if articles:
+                html = f"<h3>🔍 Found {len(articles)} results for '{query}'</h3>"
+                for a in articles:
+                    diff_color = {"Beginner": "#10b981", "Intermediate": "#f59e0b", "Advanced": "#ef4444"}.get(
+                        a.get("difficulty", "Intermediate"), "#f59e0b"
+                    )
+                    tags_html = " ".join([
+                        f'<span style="background:rgba(56,189,248,0.15);color:#38bdf8;padding:2px 8px;border-radius:10px;font-size:0.75em;">{tag}</span>' 
+                        for tag in a.get("tags", [])
+                    ])
+                    
+                    html += f"""
+                    <div style="background:rgba(30,41,59,0.8);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:16px;margin:8px 0;">
+                        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                            <h3 style="color:#f8fafc;margin:0;">📄 {a.get('title', 'Untitled')}</h3>
+                            <span style="color:{diff_color};background:{diff_color}15;padding:3px 10px;border-radius:12px;font-size:0.75em;font-weight:600;">{a.get('difficulty', 'N/A')}</span>
+                        </div>
+                        <div style="margin:8px 0;">{tags_html}</div>
+                        <div style="color:#94a3b8;font-size:0.85em;">📂 Category: {a.get('category', 'General')}</div>
+                        <hr style="border-color:rgba(255,255,255,0.05);">
+                        <h4 style="color:#ef4444;">🔴 Symptoms</h4>
+                        <p style="color:#94a3b8;">{a.get('symptoms', 'N/A')}</p>
+                        <h4 style="color:#f59e0b;">🔍 Root Cause</h4>
+                        <p style="color:#94a3b8;">{a.get('root_cause', 'N/A')}</p>
+                        <h4 style="color:#10b981;">✅ Solution</h4>
+                        <p style="color:#94a3b8;">{a.get('solution', 'N/A')}</p>
+                        <h4 style="color:#38bdf8;">🛡️ Prevention</h4>
+                        <p style="color:#94a3b8;">{a.get('prevention', 'N/A')}</p>
+                        <div style="color:#64748b;font-size:0.75em;margin-top:8px;">⏱️ Est. time: {a.get('estimated_time', 'N/A')} | Source: Incident #{a.get('source_incident_id', '?')}</div>
+                    </div>
+                    """
+                return html
+            return f"<p style='color:#94a3b8;text-align:center;'>No articles found for '{query}'. Try different keywords.</p>"
+        else:
+            return f"<p style='color:#ef4444;'>Backend error: {res.status_code}</p>"
+    except Exception as e:
+        return f"<p style='color:#ef4444;'>Search failed: {str(e)}</p>"
+
+def fetch_recent_activity(token, limit=10):
+    """Get recent incident activity."""
+    if not token:
+        return pd.DataFrame()
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/dashboard/recent-activity?limit={limit}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                df = pd.DataFrame(data)
+                # Keep relevant columns
+                cols = [c for c in ["title", "action", "severity", "time_ago", "timestamp"] if c in df.columns]
+                return df[cols]
+    except:
+        pass
+    return pd.DataFrame()

@@ -14,6 +14,13 @@ import time
 from cache import _redis
 from datetime import datetime, timedelta
 
+# In-memory cache for knowledge base (regenerated on demand)
+_kb_cache = {
+    "articles": [],
+    "generated_at": None,
+    "count": 0
+}
+
 
 router = APIRouter()
 
@@ -501,3 +508,97 @@ async def rate_limit_status(
         "limit": 60,
         "window": "1 minute"
     }
+
+@router.post("/admin/knowledge-base/generate")
+async def generate_knowledge_base(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate knowledge base from all resolved incidents."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    incidents = db.query(Incident).filter(Incident.status == "resolved").order_by(Incident.timestamp.desc()).limit(50).all()
+    
+    if not incidents:
+        return {"articles": [], "message": "No resolved incidents found"}
+    
+    from agents.knowledge_base import KnowledgeBaseAgent
+    agent = KnowledgeBaseAgent()
+    
+    incident_data = [{
+        "id": i.id,
+        "anomaly_description": i.anomaly_description or "",
+        "root_cause": i.root_cause or "",
+        "remediation": i.remediation_action or "",
+        "resolution_notes": i.resolution_notes or "",
+        "status": i.status
+    } for i in incidents]
+    
+    articles = agent.generate_from_all_resolved(incident_data)
+    
+    # Store in cache
+    _kb_cache["articles"] = articles
+    _kb_cache["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _kb_cache["count"] = len(articles)
+    
+    return {
+        "articles": articles,
+        "count": len(articles),
+        "message": f"Generated {len(articles)} articles from {len(incidents)} resolved incidents"
+    }
+
+    
+
+@router.get("/admin/knowledge-base/search")
+async def search_knowledge_base(
+    query: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search the knowledge base (uses cached articles)."""
+    if not query or len(query.strip()) < 2:
+        return {"articles": [], "query": query}
+    
+    # Use cached articles if available, otherwise generate
+    articles = _kb_cache.get("articles", [])
+    
+    if not articles:
+        # Quick generation if cache is empty
+        incidents = db.query(Incident).filter(Incident.status == "resolved").limit(20).all()
+        if not incidents:
+            return {"articles": [], "query": query}
+        
+        from agents.knowledge_base import KnowledgeBaseAgent
+        agent = KnowledgeBaseAgent()
+        
+        incident_data = [{
+            "id": i.id,
+            "anomaly_description": i.anomaly_description or "",
+            "root_cause": i.root_cause or "",
+            "remediation": i.remediation_action or "",
+            "status": i.status
+        } for i in incidents]
+        
+        articles = agent.generate_from_all_resolved(incident_data)
+        _kb_cache["articles"] = articles
+    
+    # Simple keyword search (fast, no LLM call)
+    query_lower = query.lower()
+    scored = []
+    
+    for article in articles:
+        score = 0
+        text = f"{article.get('title','')} {article.get('symptoms','')} {article.get('root_cause','')} {article.get('solution','')} {' '.join(article.get('tags',[]))}"
+        text_lower = text.lower()
+        
+        for word in query_lower.split():
+            score += text_lower.count(word)
+        
+        if score > 0:
+            scored.append((score, article))
+    
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results = [article for _, article in scored[:5]]
+    
+    return {"articles": results, "query": query, "count": len(results)}

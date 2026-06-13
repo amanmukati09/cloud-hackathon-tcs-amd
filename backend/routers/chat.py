@@ -1,3 +1,5 @@
+# backend/routers/chat.py
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -8,6 +10,7 @@ import json, asyncio
 from models import get_db, User, ChatSession, ChatMessage, Incident
 from auth import get_current_user
 from agents.chat import ChatAgent
+from agents.memory import ChatMemoryStore
 from guardrails import guard
 from fastapi.concurrency import run_in_threadpool
 from cache import cached, clear_prefix
@@ -15,6 +18,7 @@ from utils.audit_logger import log_action
 
 router = APIRouter()
 chat_agent = ChatAgent()
+memory_store = ChatMemoryStore()
 
 class AILimiter:
     def __init__(self, limit=2):
@@ -39,7 +43,7 @@ class RenameRequest(BaseModel):
 class ModelSwitchRequest(BaseModel):
     model: str
 
-# ── Send message (multi‑turn + RAG + Sentiment) ──────
+# ── Send message (multi‑turn + RAG + Sentiment + MEMORY) ──
 @router.post("/chat/message")
 async def send_chat_message(
     req: ChatRequest,
@@ -52,7 +56,25 @@ async def send_chat_message(
     safe_message, _ = guard.mask_pii(req.message)
     security_context = guard.get_ollama_security_prompt()
 
-    # RAG
+    # ─── Long‑Term Memory ─────────────────────────────
+    memory_context = ""
+    try:
+        # Store user message in long‑term memory
+        memory_store.add_message(current_user.id, req.session_id or 0, "user", safe_message)
+
+        # Retrieve relevant past memories
+        memories = memory_store.search_memories(current_user.id, safe_message, top_k=3)
+        if memories:
+            memory_parts = []
+            for mem in memories:
+                if mem['similarity'] > 0.3:
+                    memory_parts.append(f"Past conversation: {mem['content'][:200]}")
+            if memory_parts:
+                memory_context = "[LONG-TERM MEMORY]\n" + "\n".join(memory_parts) + "\n[/LONG-TERM MEMORY]"
+    except Exception as e:
+        print(f"Memory error: {e}")
+
+    # ─── RAG: Search ChromaDB ───
     rag_context = ""
     try:
         from chroma_store import IncidentStore
@@ -75,36 +97,43 @@ async def send_chat_message(
     except Exception as e:
         print(f"RAG error: {e}")
 
-    # Sentiment
+    # ─── Sentiment ────────────────────────────────────
     from agents.sentiment import SentimentAnalyzer
     sentiment = SentimentAnalyzer().analyze_message(safe_message)
     esc = "\n[⚠️ USER FRUSTRATED - be empathetic]" if sentiment.get("needs_escalation") else ""
 
-    prompt_parts = [security_context, rag_context, esc, f"User Request:\n{safe_message}"]
+    # ─── Build enforced prompt ────────────────────────
+    prompt_parts = [security_context]
+    if memory_context:
+        prompt_parts.append(memory_context)
+    if rag_context:
+        prompt_parts.append(rag_context)
+    if esc:
+        prompt_parts.append(esc)
+    prompt_parts.append(f"User Request:\n{safe_message}")
     enforced_prompt = "\n\n".join([p for p in prompt_parts if p])
 
-    # Session
+    # ── Session handling ──
     session_id = req.session_id
     if not session_id:
         title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
         new_session = ChatSession(user_id=current_user.id, title=title)
         db.add(new_session); db.commit(); db.refresh(new_session)
         session_id = new_session.id
-        
-        # 🆕 Audit log
-        log_action(db, current_user, "chat_created", 
-                   resource_type="chat_session", 
-                   resource_id=session_id)
-        
+        log_action(db, current_user, "chat_created", resource_type="chat_session", resource_id=session_id)
         clear_prefix("chat_sessions")
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
     db.add(user_msg); db.commit(); db.refresh(user_msg)
 
-    # History
-    prev = db.query(ChatMessage).filter(ChatMessage.session_id==session_id, ChatMessage.id<user_msg.id).order_by(ChatMessage.timestamp.asc()).all()
-    hist = [{"role":m.role,"content":m.content} for m in prev]
+    # ── Fetch previous messages for multi‑turn context ──
+    prev = db.query(ChatMessage).filter(
+        ChatMessage.session_id == session_id,
+        ChatMessage.id < user_msg.id
+    ).order_by(ChatMessage.timestamp.asc()).all()
+    hist = [{"role": m.role, "content": m.content} for m in prev]
 
+    # ── Generate AI response ──
     async with ai_queue:
         ai_resp = await run_in_threadpool(chat_agent.generate_response, enforced_prompt, hist)
 
@@ -116,14 +145,20 @@ async def send_chat_message(
     ai_msg = ChatMessage(session_id=session_id, role="ai", content=ai_resp)
     db.add(ai_msg); db.commit()
 
-    msgs = db.query(ChatMessage).filter(ChatMessage.session_id==session_id).order_by(ChatMessage.timestamp.asc()).all()
+    # ── Store AI response in memory ──────────────────
+    try:
+        memory_store.add_message(current_user.id, session_id, "ai", ai_resp)
+    except: pass
+
+    # ── Return full history ──
+    msgs = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.asc()).all()
     chat_fmt, tmp = [], ""
     for m in msgs:
-        if m.role=="user": tmp=m.content
-        else: chat_fmt.append([tmp,m.content]); tmp=""
-    if tmp: chat_fmt.append([tmp,""])
+        if m.role == "user": tmp = m.content
+        else: chat_fmt.append([tmp, m.content]); tmp = ""
+    if tmp: chat_fmt.append([tmp, ""])
 
-    return {"session_id":session_id, "history":chat_fmt, "sentiment":sentiment}
+    return {"session_id": session_id, "history": chat_fmt, "sentiment": sentiment}
 
 # ── Streaming endpoint ────────────────────────────────
 @router.post("/chat/message/stream")
@@ -138,15 +173,25 @@ async def send_chat_message_stream(
     safe_message, _ = guard.mask_pii(req.message)
     security_context = guard.get_ollama_security_prompt()
 
-    # RAG (simplified for streaming)
+    # Memory (lightweight for streaming)
+    memory_context = ""
+    try:
+        memories = memory_store.search_memories(current_user.id, safe_message, top_k=2)
+        if memories:
+            memory_parts = [m['content'][:200] for m in memories if m['similarity'] > 0.3]
+            if memory_parts:
+                memory_context = "[LONG-TERM MEMORY]\n" + "\n".join(memory_parts) + "\n[/LONG-TERM MEMORY]"
+    except: pass
+
+    # RAG (simplified)
     rag_context = ""
     try:
         from chroma_store import IncidentStore
         store = IncidentStore()
-        results = store.search_similar(safe_message, top_k=10)
+        results = store.search_similar(safe_message, top_k=5)
         if results and results.get('ids') and results['ids'][0]:
             parts = []
-            for i, iid in enumerate(results['ids'][0][:5]):
+            for i, iid in enumerate(results['ids'][0]):
                 inc = db.query(Incident).filter(Incident.id == int(iid)).first()
                 if inc:
                     parts.append(f"#{inc.id}: {inc.root_cause or '?'} → {inc.remediation_action or '?'}")
@@ -159,7 +204,7 @@ async def send_chat_message_stream(
     sentiment = SentimentAnalyzer().analyze_message(safe_message)
     esc = "\n[⚠️ USER FRUSTRATED]" if sentiment.get("needs_escalation") else ""
 
-    prompt_parts = [security_context, rag_context, esc, f"User Request:\n{safe_message}"]
+    prompt_parts = [security_context, memory_context, rag_context, esc, f"User Request:\n{safe_message}"]
     enforced_prompt = "\n\n".join([p for p in prompt_parts if p])
 
     # Session
@@ -169,12 +214,6 @@ async def send_chat_message_stream(
         new_session = ChatSession(user_id=current_user.id, title=title)
         db.add(new_session); db.commit(); db.refresh(new_session)
         session_id = new_session.id
-        
-        # 🆕 Audit log
-        log_action(db, current_user, "chat_created", 
-                   resource_type="chat_session", 
-                   resource_id=session_id)
-        
         clear_prefix("chat_sessions")
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
@@ -197,6 +236,11 @@ async def send_chat_message_stream(
 
         ai_msg = ChatMessage(session_id=session_id, role="ai", content=full)
         db.add(ai_msg); db.commit()
+
+        # Store AI response in memory
+        try:
+            memory_store.add_message(current_user.id, session_id, "ai", full)
+        except: pass
 
         yield f"data: {json.dumps({'done': True, 'session_id': session_id, 'sentiment': sentiment})}\n\n"
 
@@ -324,11 +368,7 @@ async def delete_chat_session(
     db.delete(session)
     db.commit()
     
-    # 🆕 Audit log
-    log_action(db, current_user, "chat_deleted", 
-               resource_type="chat_session", 
-               resource_id=session_id)
-    
+    log_action(db, current_user, "chat_deleted", resource_type="chat_session", resource_id=session_id)
     clear_prefix("chat_sessions")
 
     from routers.notifications import create_notification
@@ -363,12 +403,7 @@ async def rename_chat_session(
     session.title = new_title
     db.commit()
     
-    # 🆕 Audit log
-    log_action(db, current_user, "chat_renamed", 
-               resource_type="chat_session", 
-               resource_id=session_id, 
-               details=f"'{old_title}' → '{new_title}'")
-    
+    log_action(db, current_user, "chat_renamed", resource_type="chat_session", resource_id=session_id, details=f"'{old_title}' → '{new_title}'")
     clear_prefix("chat_sessions")
 
     from routers.notifications import create_notification
@@ -376,3 +411,10 @@ async def rename_chat_session(
                         "Chat session renamed",
                         f"Session '{old_title}' renamed to '{new_title}' (ID: {session_id}).")
     return {"status": "success", "new_title": new_title}
+
+# ── Clear long‑term memory ────────────────────────────
+@router.delete("/chat/memory")
+async def clear_memory(current_user: User = Depends(get_current_user)):
+    """Clear user's long-term chat memory."""
+    memory_store.clear_user_memory(current_user.id)
+    return {"status": "success", "message": "Memory cleared"}
