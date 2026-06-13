@@ -1,3 +1,5 @@
+# frontend/css.py
+
 import gradio as gr
 
 custom_css = """
@@ -26,6 +28,54 @@ footer { display: none !important; }
     padding: 0 10px !important;
     font-size: 0.8rem !important;
     white-space: nowrap !important;
+}
+
+/* ========== UPLOAD BOX ========== */
+.upload-box {
+    background: rgba(0,0,0,0.15) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    border-radius: 8px !important;
+    padding: 10px !important;
+    min-height: 80px !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+.upload-box p { margin: 0 0 4px 0 !important; font-size: 0.85em !important; }
+.upload-area { flex: 1 !important; min-height: 50px !important; }
+
+.upload-status {
+    font-size: 0.75em !important;
+    min-height: 18px !important;
+    max-height: 36px !important;  /* 🆕 allow 2 lines */
+    overflow-y: auto !important;  /* 🆕 scroll if needed */
+    margin-top: 4px !important;
+    color: #94a3b8 !important;
+    word-break: break-word !important;
+}
+.upload-status p {
+    margin: 0 !important;
+    font-size: 0.75em !important;
+}
+
+/* ========== IMAGE UPLOAD BOX (TALLER) ========== */
+.image-upload-box {
+    background: rgba(0,0,0,0.15) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    min-height: 180px !important;   /* 🆕 taller */
+    display: flex !important;
+    flex-direction: column !important;
+}
+.image-upload-box p { margin: 0 0 6px 0 !important; font-size: 0.9em !important; }
+.image-upload-area { flex: 1 !important; min-height: 120px !important; }
+.image-upload-area .gr-file {
+    min-height: 120px !important;
+}
+
+/* ========== MATCHED BUTTON HEIGHTS ========== */
+.image-action-row .gr-button {
+    height: 40px !important;
 }
 
 /* ========== FOOTER ========== */
@@ -82,23 +132,20 @@ footer { display: none !important; }
 .glass-card > *:first-child { margin-top: 0 !important; }
 .glass-card > *:last-child { margin-bottom: 0 !important; }
 
-/* ========== SCROLLABLE ========== */
+/* ========== SCROLLABLE OUTPUTS ========== */
 .scrollable-output {
     flex: 1 1 auto !important;
     min-height: 60px !important;
-    max-height: 200px !important;
+    max-height: none !important;
     overflow-y: auto !important;
-    padding: 6px !important;
+    padding: 6px 8px !important;
     border: 1px solid rgba(255,255,255,0.04) !important;
     border-radius: 6px !important;
-    background: rgba(0,0,0,0.15) !important;
+    background: rgba(0,0,0,0.12) !important;
+    margin-bottom: 4px !important;
 }
 .scrollable-output label { flex-shrink: 0 !important; }
-.scrollable-output > div {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-}
+.scrollable-output > div { flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important; }
 
 /* ========== PREDICTIONS PANEL ========== */
 .predictions-panel {
@@ -107,16 +154,10 @@ footer { display: none !important; }
     padding: 8px !important;
 }
 
-/* ========== TAB SPACING FIX ========== */
-.gr-tab-item {
-    padding: 6px 12px !important;
-}
-.gr-tabs {
-    gap: 0 !important;
-}
-.tabs > .tab-nav {
-    margin-bottom: 8px !important;
-}
+/* ========== TAB SPACING ========== */
+.gr-tab-item { padding: 6px 12px !important; }
+.gr-tabs { gap: 0 !important; }
+.tabs > .tab-nav { margin-bottom: 8px !important; }
 
 /* ========== TABLES ========== */
 .table-scroll { 
@@ -185,8 +226,10 @@ footer { display: none !important; }
     padding: 12px !important;
     text-align: center !important;
 }
+.health-card h2 { font-size: 1.5rem !important; margin: 4px 0 !important; }
+.health-card p { margin: 2px 0 !important; font-size: 0.8rem !important; }
 
-/* Knowledge Base scrollable results */
+/* ========== KNOWLEDGE BASE SCROLL ========== */
 .kb-results-scroll {
     max-height: 500px !important;
     overflow-y: auto !important;
@@ -196,31 +239,11 @@ footer { display: none !important; }
     border-radius: 8px !important;
     background: rgba(0,0,0,0.1) !important;
 }
-
-/* Custom scrollbar for KB results */
-.kb-results-scroll::-webkit-scrollbar {
-    width: 6px;
-}
-.kb-results-scroll::-webkit-scrollbar-track {
-    background: rgba(0,0,0,0.1);
-    border-radius: 3px;
-}
-.kb-results-scroll::-webkit-scrollbar-thumb {
-    background: rgba(56,189,248,0.3);
-    border-radius: 3px;
-}
-.kb-results-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(56,189,248,0.5);
-}
-
-/* Make article cards inside scroll look clean */
-.kb-results-scroll > div {
-    padding-right: 4px;
-}
-
-
-.health-card h2 { font-size: 1.5rem !important; margin: 4px 0 !important; }
-.health-card p { margin: 2px 0 !important; font-size: 0.8rem !important; }
+.kb-results-scroll::-webkit-scrollbar { width: 6px; }
+.kb-results-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
+.kb-results-scroll::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.3); border-radius: 3px; }
+.kb-results-scroll::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.5); }
+.kb-results-scroll > div { padding-right: 4px; }
 """
 
 saas_theme = gr.themes.Soft(

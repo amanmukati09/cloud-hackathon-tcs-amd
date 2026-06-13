@@ -29,7 +29,8 @@ from admin import (
     fetch_workspaces, create_workspace, delete_workspace,
     fetch_workspace_members, add_workspace_member,
     fetch_api_keys, create_api_key, revoke_api_key,
-    generate_knowledge_base, search_knowledge_base, fetch_recent_activity
+    generate_knowledge_base, search_knowledge_base,
+    fetch_recent_activity
 )
 from community import (
     load_posts, create_post, delete_post, like_post,
@@ -46,13 +47,13 @@ def dismiss_workflow():
     return gr.update(value="")
 
 def dismiss_rca():
-    return "<p style='color:#94a3b8;text-align:center;'>Click 'RCA Tree' to visualize root cause analysis</p>"
+    return "<p style='color:#94a3b8;text-align:center;'>Click 'RCA Tree' to visualize</p>"
 
 def dismiss_code_fix():
-    return "<p style='color:#94a3b8;text-align:center;'>Click 'Code Fix' to generate patches for this incident</p>"
+    return "<p style='color:#94a3b8;text-align:center;'>Click 'Code Fix' to generate</p>"
 
 def dismiss_runbook():
-    return gr.update(visible=False), "<p style='color:#94a3b8;text-align:center;'>Select a resolved incident and click 'Generate Runbook'</p>"
+    return gr.update(visible=False), "<p style='color:#94a3b8;text-align:center;'>Select resolved incident → Generate Runbook</p>"
 
 def save_alert_config(slack, teams, pagerduty, opsgenie, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, alert_emails, token):
     try:
@@ -89,6 +90,47 @@ def analyze_sentiment_ui(message, token):
 def extract_task_id(status_text):
     match = re.search(r'Task #(\d+)', status_text or "")
     return int(match.group(1)) if match else None
+
+def handle_file_change(files, token):
+    """Handle file upload with auto-clear on removal."""
+    # When file is removed, use gr.update to properly clear the Markdown component
+    if files is None or files == "" or files == [] or (isinstance(files, list) and len(files) == 0):
+        return gr.update(value=""), gr.update(value="")
+    
+    try:
+        if isinstance(files, str):
+            files = [files]
+        
+        valid_files = []
+        invalid_names = []
+        for f in files:
+            if not f or not str(f).strip():
+                continue
+            fname = str(f).lower()
+            if fname.endswith(('.log', '.txt', '.out')):
+                valid_files.append(f)
+            else:
+                short_name = fname.split('/')[-1] if '/' in fname else fname
+                invalid_names.append(short_name)
+        
+        if not valid_files:
+            if invalid_names:
+                return gr.update(value=""), gr.update(value=f"❌ Not log files: {', '.join(invalid_names[:2])}")
+            return gr.update(value=""), gr.update(value="❌ Please select .log, .txt, or .out files")
+        
+        return upload_log_files(valid_files, token)
+        
+    except Exception as e:
+        return gr.update(value=""), gr.update(value=f"❌ Error: {str(e)[:80]}")
+
+
+        
+
+def handle_image_change(image, token):
+    """Handle image upload with auto-clear on removal."""
+    if image is None:
+        return gr.update(value=""), gr.update(value="*Upload an image and click 'Analyze Image' to see results*")
+    return gr.update(), gr.update()
 
 # --- UI LAYOUT ---
 with gr.Blocks(title="AegisAI") as demo:
@@ -131,54 +173,43 @@ with gr.Blocks(title="AegisAI") as demo:
             with gr.Tabs():
                 with gr.Tab("Analytics"):
                     with gr.Row():
-                        metric_users = gr.Number(label="👥 Total Users", interactive=False)
-                        metric_incidents = gr.Number(label="📋 Total Incidents", interactive=False)
-                        metric_chats = gr.Number(label="💬 Active Chats", interactive=False)
-                        metric_resolved = gr.Number(label="✅ Resolved", interactive=False, value=0)
-                    
+                        metric_users = gr.Number(label="Total Users", interactive=False)
+                        metric_incidents = gr.Number(label="Total Incidents", interactive=False)
+                        metric_chats = gr.Number(label="Active Chats", interactive=False)
+                        metric_resolved = gr.Number(label="Resolved", interactive=False, value=0)
                     with gr.Row():
-                        dashboard_days = gr.Slider(minimum=1, maximum=90, value=30, step=1, label="📅 Period (days)", scale=3, interactive=True)
+                        dashboard_days = gr.Slider(minimum=1, maximum=90, value=30, step=1, label="Period (days)", scale=3, interactive=True)
                         dashboard_severity = gr.Dropdown(
                             choices=["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"],
-                            value="ALL", label="⚠️ Severity Filter", scale=1, interactive=True
+                            value="ALL", label="Severity Filter", scale=1, interactive=True
                         )
-                        refresh_dashboard_btn = gr.Button("🔄 Refresh Dashboard", variant="primary", scale=1)
-                    
+                        refresh_dashboard_btn = gr.Button("Refresh Dashboard", variant="primary", scale=1)
                     with gr.Row(equal_height=True):
                         with gr.Column(scale=2, elem_classes="glass-card"):
-                            gr.Markdown("### 📈 Incident Timeline")
+                            gr.Markdown("### Incident Timeline")
                             dashboard_timeline = gr.LinePlot(x="date", y="Incidents", tooltip=["date", "Incidents"], height=280)
                         with gr.Column(scale=1, elem_classes="glass-card"):
-                            gr.Markdown("### ⚠️ By Severity")
-                            dashboard_severity_chart = gr.BarPlot(
-                                x="Severity", y="Count", color="Severity",
-                                tooltip=["Severity", "Count"], height=280
-                            )
-                    
+                            gr.Markdown("### By Severity")
+                            dashboard_severity_chart = gr.BarPlot(x="Severity", y="Count", color="Severity", tooltip=["Severity", "Count"], height=280)
                     with gr.Row(equal_height=True):
                         with gr.Column(scale=1, elem_classes="glass-card"):
-                            gr.Markdown("### 🔄 Status Breakdown")
-                            dashboard_status_chart = gr.BarPlot(
-                                x="status", y="Count", color="status",
-                                tooltip=["status", "Count"], height=250
-                            )
+                            gr.Markdown("### Status Breakdown")
+                            dashboard_status_chart = gr.BarPlot(x="status", y="Count", color="status", tooltip=["status", "Count"], height=250)
                         with gr.Column(scale=1, elem_classes="glass-card"):
-                            gr.Markdown("### 🔮 AI Predictions")
+                            gr.Markdown("### AI Predictions")
                             predictions_output = gr.Markdown(value="*Loading predictions...*", elem_classes="predictions-panel")
                         with gr.Column(scale=1, elem_classes="glass-card"):
-                            gr.Markdown("### 📋 Recent Activity")
+                            gr.Markdown("### Recent Activity")
                             recent_activity_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
-                    
                     with gr.Row():
                         with gr.Column(elem_classes="glass-card"):
-                            gr.Markdown("### 🔬 Incident Clusters")
+                            gr.Markdown("### Incident Clusters")
                             clusters_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Loading clusters...</p>")
-                    
                     with gr.Row():
                         with gr.Column(elem_classes="glass-card health-card"):
-                            gr.Markdown("### 💚 System Health")
+                            gr.Markdown("### System Health")
                             gr.Markdown("""<div style="padding:4px;text-align:center;">
-                                <h2 style="color:#10b981;font-size:1.2rem;margin:2px 0;">✅ All Systems Operational</h2>
+                                <h2 style="color:#10b981;font-size:1.2rem;margin:2px 0;">All Systems Operational</h2>
                                 <p style="color:#94a3b8;margin:1px 0;font-size:0.7rem;">API: Online | AI: Connected | DB: SQLite | ChromaDB: Active</p>
                             </div>""")
 
@@ -221,11 +252,8 @@ with gr.Blocks(title="AegisAI") as demo:
                         with gr.Column(elem_classes="glass-card"):
                             gr.Markdown("### Configure Alert Channels")
                             gr.Markdown("Alerts sent for CRITICAL and HIGH severity only.")
-                            gr.Markdown("#### Slack")
                             slack_webhook_input = gr.Textbox(label="Slack Webhook URL", placeholder="https://hooks.slack.com/...")
-                            gr.Markdown("#### Microsoft Teams")
                             teams_webhook_input = gr.Textbox(label="Teams Webhook URL", placeholder="https://prod-xx.logic.azure.com/...")
-                            gr.Markdown("#### Email (SMTP)")
                             with gr.Row():
                                 smtp_host_input = gr.Textbox(label="SMTP Host", value="smtp.gmail.com", scale=2)
                                 smtp_port_input = gr.Number(label="Port", value=587, precision=0, scale=1)
@@ -234,10 +262,8 @@ with gr.Blocks(title="AegisAI") as demo:
                                 smtp_password_input = gr.Textbox(label="App Password", type="password", scale=1)
                             smtp_from_input = gr.Textbox(label="From Email", value="aegisai@alerts.com")
                             alert_emails_input = gr.Textbox(label="Alert Recipients", placeholder="team@company.com")
-                            gr.Markdown("#### PagerDuty")
-                            pagerduty_key_input = gr.Textbox(label="Routing Key", placeholder="Your PagerDuty key")
-                            gr.Markdown("#### Opsgenie")
-                            opsgenie_key_input = gr.Textbox(label="API Key", placeholder="Your Opsgenie GenieKey")
+                            pagerduty_key_input = gr.Textbox(label="PagerDuty Routing Key", placeholder="Your PagerDuty key")
+                            opsgenie_key_input = gr.Textbox(label="Opsgenie API Key", placeholder="Your Opsgenie GenieKey")
                             with gr.Row():
                                 save_alerts_btn = gr.Button("Save Configuration", variant="primary")
                                 test_alert_btn = gr.Button("Send Test Alert", variant="secondary")
@@ -253,21 +279,17 @@ with gr.Blocks(title="AegisAI") as demo:
         # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
             # LIVE DIAGNOSIS
-            with gr.Tab("Live Diagnosis"):
+            with gr.Tab("Live Diagnosis", id="tab_diag"):
                 with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
-                        gr.Markdown("### System Telemetry Input")
-                        log_upload = gr.File(label="Upload log files", file_types=[".log", ".txt"], file_count="multiple")
-                        upload_status = gr.Markdown("")
-
-                        gr.Markdown("### 📸 Upload Screenshot")
-                        image_upload = gr.File(label="Upload error screenshot", file_types=["image"], file_count="single")
-                        image_analyze_btn = gr.Button("Analyze Image", variant="secondary", size="sm")
-                        image_result = gr.HTML(value="")
-                        gr.Markdown("---")
-                        gr.Markdown("### 📝 Or Paste Logs")
-
-                        logs_input = gr.Textbox(label="System Logs", lines=6, placeholder="Paste your server logs here...")
+                        gr.Markdown("### 📡 Input")
+                        with gr.Row():
+                            with gr.Column(scale=1, elem_classes="upload-box"):
+                                gr.Markdown("**📁 Upload Log Files**")
+                                log_upload = gr.File(file_count="multiple", label="Select .log/.txt files", elem_classes="upload-area")
+                                upload_status = gr.Markdown("", elem_classes="upload-status")
+                        gr.Markdown("**Or Paste Logs**")
+                        logs_input = gr.Textbox(lines=8, placeholder="Paste your server or application logs here...", show_label=False)
                         with gr.Row():
                             diagnose_btn = gr.Button("Analyze Logs", variant="primary")
                             auto_remediate_btn = gr.Button("Auto-Remediate", variant="primary")
@@ -276,22 +298,22 @@ with gr.Blocks(title="AegisAI") as demo:
                             clear_btn = gr.Button("Clear", variant="stop")
                         with gr.Row():
                             discuss_btn = gr.Button("Discuss with AI", variant="secondary")
-                            search_similar_btn = gr.Button("Find Similar", variant="secondary")
+                            search_similar_btn = gr.Button("Find Similar Incidents", variant="secondary")
                             async_diagnose_btn = gr.Button("Async Analyze", variant="secondary")
                         gr.Examples(examples=[
                             ["[ERROR] nginx worker crashed\n[WARNING] memory: 90%\n[ERROR] cpu: 95%"],
                             ["[INFO] database pool active\n[CRITICAL] connection timeout\n[CRITICAL] query failed"]
                         ], inputs=logs_input)
                     with gr.Column(scale=1, elem_classes="glass-card"):
-                        gr.Markdown("### Diagnostics Report")
-                        anomaly_out = gr.Markdown(value="*Waiting...*", label="Anomaly Detected", elem_classes="scrollable-output")
-                        rc_out = gr.Markdown(value="*Waiting...*", label="Root Cause", elem_classes="scrollable-output")
-                        remed_out = gr.Markdown(value="*Waiting...*", label="Remediation", elem_classes="scrollable-output")
+                        gr.Markdown("### 📊 Diagnostics Report")
+                        anomaly_out = gr.Markdown(value="*Waiting for analysis...*", label="🔴 Anomaly Detected", elem_classes="scrollable-output")
+                        rc_out = gr.Markdown(value="*Waiting for analysis...*", label="🔍 Root Cause", elem_classes="scrollable-output")
+                        remed_out = gr.Markdown(value="*Waiting for analysis...*", label="⚙️ Remediation", elem_classes="scrollable-output")
                 
                 with gr.Row():
                     with gr.Column(elem_classes="glass-card"):
-                        gr.Markdown("### Background Task Status")
-                        async_status = gr.Markdown(value="*No background tasks*")
+                        gr.Markdown("### ⚡ Background Tasks")
+                        async_status = gr.Markdown(value="*No background tasks running*")
                         with gr.Row():
                             refresh_async_btn = gr.Button("Check Status", variant="secondary", size="sm")
                             clear_async_btn = gr.Button("Clear", variant="stop", size="sm")
@@ -320,8 +342,32 @@ with gr.Blocks(title="AegisAI") as demo:
                             dismiss_code_fix_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
                         code_fix_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Click 'Code Fix' to generate</p>")
 
+            # IMAGE ANALYSIS TAB
+            with gr.Tab("📸 Image Analysis"):
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### 📤 Upload Screenshot")
+                        gr.Markdown("*Upload a screenshot of error messages, dashboards, or logs for AI analysis*")
+                        with gr.Column(elem_classes="image-upload-box"):
+                            
+                            image_upload = gr.File(file_count="single", label="Select image file", elem_classes="image-upload-area")                        
+                            with gr.Row(elem_classes="image-action-row"):
+                            analyze_image_btn = gr.Button("🔍 Analyze Image", variant="primary", scale=3)
+                            clear_image_btn = gr.Button("Clear", variant="stop", size="sm", scale=1)
+                        image_result = gr.HTML(value="")
+                    
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### 📊 Analysis Results")
+                        image_analysis_output = gr.Markdown(value="*Upload an image and click 'Analyze Image' to see results*", elem_classes="scrollable-output")
+                        gr.Markdown("---")
+                        gr.Markdown("### ⚡ Actions")
+                        with gr.Row():
+                            send_to_chat_btn = gr.Button("💬 Discuss with Copilot", variant="secondary", size="sm")
+                            extract_to_logs_btn = gr.Button("📄 Use as Log Input", variant="secondary", size="sm")
+                        image_action_status = gr.Markdown("")
+
             # AI COPILOT
-            with gr.Tab("AI Copilot"):
+            with gr.Tab("AI Copilot", id="tab_chat"):
                 with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
                         gr.Markdown("### AI Model")
@@ -475,26 +521,18 @@ with gr.Blocks(title="AegisAI") as demo:
             with gr.Tab("Knowledge Base"):
                 with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
-                        gr.Markdown("### 📚 Generate Articles")
-                        gr.Markdown("*Create knowledge base from resolved incidents*")
-                        generate_kb_btn = gr.Button("🔄 Generate Knowledge Base", variant="primary")
+                        gr.Markdown("### Generate Articles")
+                        generate_kb_btn = gr.Button("Generate Knowledge Base", variant="primary")
                         kb_status = gr.Markdown("")
                         gr.Markdown("---")
-                        gr.Markdown("### 📋 Article List")
-                        kb_articles_table = gr.Dataframe(
-                            interactive=False, wrap=True, elem_classes="table-scroll", label="Generated Articles"
-                        )
+                        gr.Markdown("### Article List")
+                        kb_articles_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll", label="Generated Articles")
                     with gr.Column(scale=2, elem_classes="glass-card"):
-                        gr.Markdown("### 🔍 Search Knowledge Base")
+                        gr.Markdown("### Search Knowledge Base")
                         with gr.Row():
-                            kb_search_input = gr.Textbox(
-                                placeholder="Search for solutions...", show_label=False, scale=4
-                            )
+                            kb_search_input = gr.Textbox(placeholder="Search for solutions...", show_label=False, scale=4)
                             kb_search_btn = gr.Button("Search", variant="primary", scale=1)
-                        kb_results = gr.HTML(
-                            value="<p style='color:#94a3b8;text-align:center;padding:20px;'>Generate articles first, then search for solutions</p>",
-                            elem_classes="kb-results-scroll"
-                        )
+                        kb_results = gr.HTML(value="<p style='color:#94a3b8;text-align:center;padding:20px;'>Generate articles first, then search</p>", elem_classes="kb-results-scroll")
 
             # NOTIFICATIONS
             with gr.Tab("Notifications"):
@@ -516,16 +554,39 @@ with gr.Blocks(title="AegisAI") as demo:
     log_show_pass.change(fn=None, inputs=[log_show_pass], js="(s)=>{const el=document.querySelector('#log_pass_input input');if(el)el.type=s?'text':'password';return[];}")
     reg_show_pass.change(fn=None, inputs=[reg_show_pass], js="(s)=>{const el=document.querySelector('#reg_pass_input input');if(el)el.type=s?'text':'password';return[];}")
 
-    log_upload.change(fn=upload_log_files, inputs=[log_upload, session_token], outputs=[logs_input, upload_status])
+    # 🆕 Log upload - auto-clear on removal
+    log_upload.change(fn=handle_file_change, inputs=[log_upload, session_token], outputs=[logs_input, upload_status])
 
-        # Image analysis
-    image_analyze_btn.click(
-        fn=analyze_image,
-        inputs=[image_upload, session_token],
-        outputs=[image_result, logs_input]
+    # 🆕 Image upload - auto-clear on removal
+    image_upload.change(fn=handle_image_change, inputs=[image_upload, session_token], outputs=[image_result, image_analysis_output])
+
+    # Image Analysis wiring
+    analyze_image_btn.click(fn=analyze_image, inputs=[image_upload, session_token], outputs=[image_result, image_analysis_output])
+    clear_image_btn.click(
+        fn=lambda: (
+            gr.update(value=""),
+            gr.update(value="*Upload an image and click 'Analyze Image' to see results*"),
+            gr.update(value=None)
+        ),
+        outputs=[image_result, image_analysis_output, image_upload]
     )
+
+    send_to_chat_btn.click(
+        fn=lambda text: (text, [], None, gr.update(value=None), gr.update(selected="tab_chat")),
+        inputs=[image_analysis_output],
+        outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager],
+        queue=False
+    )
+
+    extract_to_logs_btn.click(
+        fn=lambda text: (text, "✅ Extracted text sent to logs input. Go to Live Diagnosis to analyze.", gr.update(selected="tab_diag")),
+        inputs=[image_analysis_output],
+        outputs=[logs_input, image_action_status, tabs_manager],
+        queue=False
+    )
+
     clear_btn.click(
-        fn=lambda:("","","*Waiting...*","*Waiting...*","*Waiting...*",pd.DataFrame(),gr.update(visible=False),gr.update(value="")),
+        fn=lambda:("","","*Waiting for analysis...*","*Waiting for analysis...*","*Waiting for analysis...*",pd.DataFrame(),gr.update(visible=False),gr.update(value="")),
         outputs=[logs_input,upload_status,anomaly_out,rc_out,remed_out,similar_incidents_table,similar_incidents_row,similar_incidents_status], queue=False
     )
 
@@ -577,24 +638,23 @@ with gr.Blocks(title="AegisAI") as demo:
     rca_tree_btn.click(fn=generate_rca_tree, inputs=[logs_input,session_token], outputs=[rca_tree_output])
     code_fix_btn.click(fn=generate_code_fix, inputs=[logs_input,session_token], outputs=[code_fix_output])
     refresh_btn.click(fn=fetch_history, inputs=[session_token], outputs=[history_table])
+
     discuss_btn.click(
-        fn=lambda l,a:(gr.update(value=f"Anomaly:\n{l}\n\nDiagnosis:\n{a}"),[],None,gr.update(value=None),gr.update(selected="tab_chat")) if l.strip() else (gr.update(),gr.update(),gr.update(),gr.update(),gr.update()),
-        inputs=[logs_input,anomaly_out], outputs=[chat_input,chatbot_ui,current_chat_id,chat_session_dropdown,tabs_manager], queue=False
+        fn=lambda l: (f"Please analyze these logs:\n\n{l}" if l.strip() else "", [], None, gr.update(value=None), gr.update(selected="tab_chat")),
+        inputs=[logs_input],
+        outputs=[chat_input, chatbot_ui, current_chat_id, chat_session_dropdown, tabs_manager],
+        queue=False
     )
 
     refresh_dashboard_btn.click(
-        fn=fetch_analytics,
-        inputs=[session_token, dashboard_days, dashboard_severity],
+        fn=fetch_analytics, inputs=[session_token, dashboard_days, dashboard_severity],
         outputs=[dashboard_timeline, dashboard_severity_chart, dashboard_status_chart]
     ).then(
         fn=lambda token, days, sev: load_admin_data(token, days, sev)[:4],
         inputs=[session_token, dashboard_days, dashboard_severity],
         outputs=[metric_users, metric_incidents, metric_chats, metric_resolved]
-    ).then(
-        fn=fetch_recent_activity, inputs=[session_token], outputs=[recent_activity_table]
-    ).then(
-        fn=fetch_predictions, inputs=[session_token], outputs=[predictions_output]
-    )
+    ).then(fn=fetch_recent_activity, inputs=[session_token], outputs=[recent_activity_table]
+    ).then(fn=fetch_predictions, inputs=[session_token], outputs=[predictions_output])
 
     async_diagnose_btn.click(fn=async_diagnose, inputs=[logs_input, session_token], outputs=[async_status]
     ).then(fn=extract_task_id, inputs=[async_status], outputs=[async_task_id])
@@ -659,11 +719,9 @@ with gr.Blocks(title="AegisAI") as demo:
 
     refresh_audit_btn.click(fn=fetch_audit_logs, inputs=[session_token], outputs=[audit_logs_table])
 
-    # Knowledge Base
     generate_kb_btn.click(fn=generate_knowledge_base, inputs=[session_token], outputs=[kb_status, kb_articles_table])
     kb_search_btn.click(fn=search_knowledge_base, inputs=[kb_search_input, session_token], outputs=[kb_results])
 
-    # Workspaces
     refresh_workspaces_btn.click(fn=fetch_workspaces, inputs=[session_token], outputs=[workspaces_table,gr.State()])
     create_workspace_btn.click(fn=create_workspace, inputs=[workspace_name_input,workspace_desc_input,session_token],
                               outputs=[workspaces_table,gr.State()]
@@ -679,7 +737,6 @@ with gr.Blocks(title="AegisAI") as demo:
     add_member_btn.click(fn=add_workspace_member, inputs=[selected_workspace_id,add_member_id_input,session_token],
                         outputs=[workspace_members_table,add_member_status])
 
-    # API Keys
     refresh_api_keys_btn.click(fn=fetch_api_keys, inputs=[session_token], outputs=[api_keys_table])
     create_api_key_btn.click(fn=create_api_key, inputs=[api_key_name_input,api_key_expiry_input,session_token],
                             outputs=[api_keys_table,api_key_output])
@@ -719,7 +776,6 @@ with gr.Blocks(title="AegisAI") as demo:
     dismiss_download_btn.click(fn=dismiss_download, outputs=[download_row,download_file])
     dismiss_resolve_btn.click(fn=dismiss_resolve, outputs=[resolve_incident_row,resolve_incident_id,incident_details_md])
 
-    # Community
     refresh_posts_btn.click(fn=load_posts, inputs=[session_token], outputs=[community_posts_table])
     post_btn.click(fn=create_post, inputs=[new_post_input,session_token], outputs=[community_posts_table])
     def on_post_select(evt:gr.SelectData,token):

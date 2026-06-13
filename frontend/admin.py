@@ -640,23 +640,17 @@ def search_knowledge_base(query, token):
     except Exception as e:
         return f"<p style='color:#ef4444;'>Search failed: {str(e)}</p>"
 
+
 def fetch_recent_activity(token, limit=10):
-    """Get recent incident activity."""
-    if not token:
-        return pd.DataFrame()
+    if not token: return pd.DataFrame()
     try:
-        res = requests.get(
-            f"{BACKEND_URL}/dashboard/recent-activity?limit={limit}",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
-        )
+        res = requests.get(f"{BACKEND_URL}/dashboard/recent-activity?limit={limit}",
+                           headers={"Authorization": f"Bearer {token}"}, timeout=10)
         if res.status_code == 200:
             data = res.json()
             if data:
                 df = pd.DataFrame(data)
-                # Keep relevant columns
                 cols = [c for c in ["title", "action", "severity", "time_ago", "timestamp"] if c in df.columns]
-                return df[cols]
-    except:
-        pass
+                return df[cols] if cols else df
+    except: pass
     return pd.DataFrame()

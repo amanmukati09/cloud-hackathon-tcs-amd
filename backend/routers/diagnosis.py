@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
@@ -12,7 +13,8 @@ import asyncio
 from pydantic import BaseModel
 from utils.audit_logger import log_action
 router = APIRouter()
-
+from PIL import Image
+import io
 monitor = MonitorAgent()
 diagnosis = DiagnosisAgent()
 remediation = RemediationAgent()
@@ -244,16 +246,50 @@ async def diagnose_image(
     current_user: User = Depends(get_current_user)
 ):
     """Analyze an uploaded image for incidents."""
+    
+    # Validate content type
     if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
+        return {
+            "description": "Invalid file type. Please upload an image (PNG, JPG, GIF, etc.)",
+            "incident_detected": False,
+            "severity": "UNKNOWN",
+            "affected_system": "N/A",
+            "recommended_action": "Upload a valid image file",
+            "extracted_logs": [],
+            "text_found": False
+        }
     
     # Read image bytes
     image_bytes = await file.read()
     if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
+        return {
+            "description": "Image too large (max 10MB)",
+            "incident_detected": False,
+            "severity": "UNKNOWN",
+            "affected_system": "N/A",
+            "recommended_action": "Upload a smaller image",
+            "extracted_logs": [],
+            "text_found": False
+        }
     
-    from agents.image_analyzer import ImageAnalyzer
-    analyzer = ImageAnalyzer()
-    result = analyzer.analyze_image_for_incidents(image_bytes)
+    # Validate it's actually an image using PIL
+    from PIL import Image
+    import io
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img.verify()  # Verify it's a valid image
+    except Exception:
+        return {
+            "description": "The uploaded file is not a valid image. Please upload a PNG, JPG, or other image format.",
+            "incident_detected": False,
+            "severity": "UNKNOWN",
+            "affected_system": "N/A",
+            "recommended_action": "Upload a valid image file",
+            "extracted_logs": [],
+            "text_found": False
+        }
     
-    return result
+    from agents.vision_analyzer import VisionAnalyzer
+    analyzer = VisionAnalyzer()
+    return analyzer.analyze_image(image_bytes)
+

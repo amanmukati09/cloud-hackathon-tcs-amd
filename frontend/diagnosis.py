@@ -70,218 +70,158 @@ def search_similar_incidents(logs_text, token):
 def upload_log_files(file_paths, token):
     """Handle file upload and return parsed contents."""
     if not file_paths or not token:
-        return "", "📂 Upload .log or .txt files to auto-fill the text area"
+        return gr.update(value=""), gr.update(value="")
     
     try:
         all_lines = []
         file_names = []
         
-        # file_paths can be a single string or list
         if isinstance(file_paths, str):
             file_paths = [file_paths]
         
+        file_paths = [f for f in file_paths if f and str(f).strip()]
+        
+        if not file_paths:
+            return gr.update(value=""), gr.update(value="")
+        
         for file_path in file_paths:
-            if not file_path:
-                continue
-                
-            file_names.append(file_path.split('/')[-1])
+            fname = str(file_path).split('/')[-1]
+            file_names.append(fname)
             
-            # Read the file locally (Gradio saves uploaded files to temp location)
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-                all_lines.extend(lines)
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = [line.strip() for line in content.split('\n') if line.strip()]
+                    all_lines.extend(lines)
+            except:
+                continue
         
         if not all_lines:
-            return "", "❌ No valid log lines found in uploaded files"
+            return gr.update(value=""), gr.update(value="❌ No readable content found")
         
-        log_text = "\n".join(all_lines[:5000])  # Limit to 5000 lines
-        info = f"✅ Loaded {len(file_names)} file(s): {', '.join(file_names[:3])} | {len(all_lines)} lines total"
+        log_text = "\n".join(all_lines[:5000])
+        info = f"✅ {len(file_names)} file(s), {len(all_lines)} lines"
         
-        return log_text, info
+        return gr.update(value=log_text), gr.update(value=info)
         
     except Exception as e:
-        return "", f"❌ Error reading file: {str(e)}"
+        return gr.update(value=""), gr.update(value=f"❌ Error: {str(e)[:80]}")
 
 def auto_remediate(logs_text, auto_execute, token):
-    """Run the full agentic workflow."""
     if not token or not logs_text.strip():
         return gr.update(), gr.update(), gr.update(), gr.update(), pd.DataFrame()
-    
     try:
         res = requests.post(
             f"{BACKEND_URL}/workflow/auto-remediate",
-            json={
-                "logs": [line.strip() for line in logs_text.split('\n') if line.strip()],
-                "auto_execute": auto_execute
-            },
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=120
+            json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()], "auto_execute": auto_execute},
+            headers={"Authorization": f"Bearer {token}"}, timeout=120
         )
         if res.status_code == 200:
             data = res.json()
-            
-            # Format workflow steps for display
             steps_html = "### 🤖 Autonomous Workflow\n\n"
             for step in data.get("workflow_steps", []):
                 icon = "✅" if step["status"] == "completed" else "⏳" if step["status"] == "running" else "❌"
                 steps_html += f"{icon} **Step {step['step']}:** {step['name']}\n"
-                
-                # Show command results
                 if "commands" in step:
                     for cmd in step["commands"]:
                         status = "✅" if cmd["success"] else "❌"
                         steps_html += f"  {status} `{cmd['command']}` → {cmd['output'][:100]}\n"
-                
-                # Show execution results
                 if "results" in step:
                     for res in step["results"]:
                         status = "✅" if res["success"] else "❌"
                         steps_html += f"  {status} `{res['command']}` → {res['output'][:100]}\n"
-                
                 steps_html += "\n"
             
-            # Get diagnosis results
-            anomaly = format_diagnosis(data) if data.get("anomaly_detected") else (
-                "### ✅ System Normal", "*N/A*", "*N/A*"
-            )
-            
+            anomaly = format_diagnosis(data) if data.get("anomaly_detected") else ("### ✅ System Normal", "*N/A*", "*N/A*")
             return (
-                gr.update(value=anomaly[0]),
-                gr.update(value=anomaly[1]),
-                gr.update(value=anomaly[2]),
-                gr.update(value=steps_html),
-                fetch_history(token)
+                gr.update(value=anomaly[0]), gr.update(value=anomaly[1]), gr.update(value=anomaly[2]),
+                gr.update(value=steps_html), fetch_history(token)
             )
     except Exception as e:
         return gr.update(), gr.update(), gr.update(), gr.update(value=f"❌ Error: {e}"), gr.update()
     return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-
 def generate_rca_tree(logs_text, token):
-    """Generate and display RCA tree."""
     if not token or not logs_text.strip():
         return gr.update(value="*Paste logs and click 'RCA Tree' to analyze*")
-    
     try:
         res = requests.post(
             f"{BACKEND_URL}/diagnose/rca-tree",
             json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=120
+            headers={"Authorization": f"Bearer {token}"}, timeout=120
         )
         if res.status_code == 200:
-            data = res.json()
             return gr.update(value=data.get("html", "*No tree generated*"))
-        else:
-            return gr.update(value="*Failed to generate RCA tree*")
     except Exception as e:
         return gr.update(value=f"*Error: {str(e)}*")
 
 def generate_code_fix(logs_text, token):
-    """Generate code fixes for an incident."""
     if not token or not logs_text.strip():
         return "<p style='color:#94a3b8;text-align:center;'>Paste logs and click 'Code Fix' to generate patches</p>"
-    
     try:
         res = requests.post(
             f"{BACKEND_URL}/diagnose/code-fix",
             json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=120
+            headers={"Authorization": f"Bearer {token}"}, timeout=120
         )
         if res.status_code == 200:
-            data = res.json()
             return data.get("html", "*No fixes generated*")
-        else:
-            return "<p style='color:#ef4444;'>Failed to generate code fixes</p>"
     except Exception as e:
         return f"<p style='color:#ef4444;'>Error: {str(e)}</p>"
 
 def async_diagnose(logs_text, token):
-    """Submit diagnosis to background worker."""
     if not token or not logs_text.strip():
         return "Paste logs and click 'Async Analyze'"
-    
     try:
         res = requests.post(
             f"{BACKEND_URL}/async/diagnose",
             json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
+            headers={"Authorization": f"Bearer {token}"}, timeout=10
         )
         if res.status_code == 200:
-            data = res.json()
-            task_id = data['task_id']
-            return f"✅ Task #{task_id} queued! Processing in background..."
+            return f"✅ Task #{res.json()['task_id']} queued! Processing in background..."
     except:
         pass
     return "❌ Failed to queue task"
 
 def check_async_task(task_id, token):
-    """Check status of a background task."""
     if not task_id or not token:
         return "No task to check"
-    
     try:
-        res = requests.get(
-            f"{BACKEND_URL}/async/task/{int(task_id)}",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=5
-        )
+        res = requests.get(f"{BACKEND_URL}/async/task/{int(task_id)}", headers={"Authorization": f"Bearer {token}"}, timeout=5)
         if res.status_code == 200:
             data = res.json()
             status = data.get("status", "unknown")
             result = data.get("result", "")
-            
-            if status == "completed":
-                return f"✅ **Task #{task_id} Complete!**\n\n```json\n{result[:500]}\n```"
-            elif status == "failed":
-                return f"❌ **Task #{task_id} Failed:** {result}"
-            elif status == "running":
-                return f"⏳ **Task #{task_id} Running...**"
-            else:
-                return f"📋 **Task #{task_id} Pending...**"
-    except:
-        pass
+            if status == "completed": return f"✅ **Task #{task_id} Complete!**\n\n```json\n{result[:500]}\n```"
+            elif status == "failed": return f"❌ **Task #{task_id} Failed:** {result}"
+            elif status == "running": return f"⏳ **Task #{task_id} Running...**"
+            else: return f"📋 **Task #{task_id} Pending...**"
+    except: pass
     return "Failed to check task status"
+
 def analyze_image(file, token):
-    """Upload and analyze an image for incidents. Returns (html, extracted_text)."""
     if not file or not token:
         return "<p style='color:#94a3b8;text-align:center;'>Upload a screenshot to analyze</p>", ""
-    
     try:
         with open(file.name, "rb") as f:
             files = {"file": (file.name.split("/")[-1], f, "image/png")}
-            res = requests.post(
-                f"{BACKEND_URL}/diagnose/image",
-                files=files,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=60
-            )
-        
+            res = requests.post(f"{BACKEND_URL}/diagnose/image", files=files, headers={"Authorization": f"Bearer {token}"}, timeout=120)
         if res.status_code == 200:
             data = res.json()
-            if not data.get("text_found"):
-                return "<p style='color:#f59e0b;text-align:center;'>⚠️ No text found in image</p>", ""
-            
-            sev_colors = {"CRITICAL": "#ef4444", "HIGH": "#f59e0b", "MEDIUM": "#3b82f6", "LOW": "#10b981", "UNKNOWN": "#6b7280"}
             sev = data.get("severity", "UNKNOWN")
-            sev_color = sev_colors.get(sev, "#6b7280")
-            
-            extracted = data.get("extracted_text", "")
+            sev_color = {"CRITICAL":"#ef4444","HIGH":"#f59e0b","MEDIUM":"#3b82f6","LOW":"#10b981"}.get(sev,"#6b7280")
+            logs = "\n".join(data.get("extracted_logs", []))
             html = f"""
-            <div style="background:rgba(30,41,59,0.8);border-radius:10px;padding:16px;">
-                <h3>📸 Image Analysis</h3>
+            <div style="background:rgba(30,41,59,0.8);border-radius:10px;padding:12px;">
+                <h3>📸 AI Vision Analysis</h3>
                 <p><strong>Severity:</strong> <span style="color:{sev_color};font-weight:bold;">{sev}</span></p>
-                <p><strong>Summary:</strong> {data.get('summary', 'N/A')}</p>
-                <p><strong>Affected System:</strong> {data.get('affected_system', 'N/A')}</p>
-                <p><strong>Recommended:</strong> {data.get('recommended_action', 'N/A')}</p>
-                <p style="font-size:0.85em;color:#94a3b8;">📋 Extracted text has been placed in the logs area below. Click <b>Analyze Logs</b> to diagnose.</p>
-            </div>
-            """
-            return html, extracted
-        else:
-            return f"<p style='color:#ef4444;'>Error: {res.status_code}</p>", ""
+                <p><strong>Affected:</strong> {data.get('affected_system','Unknown')}</p>
+                <p><strong>Action:</strong> {data.get('recommended_action','N/A')}</p>
+                <details><summary style="color:#38bdf8;cursor:pointer;">📝 Detailed Description</summary>
+                <p style="color:#94a3b8;font-size:0.9em;">{data.get('description','')}</p></details>
+            </div>"""
+            return html, logs
+        return f"<p style='color:#ef4444;'>Error: {res.status_code}</p>", ""
     except Exception as e:
         return f"<p style='color:#ef4444;'>Error: {str(e)}</p>", ""
