@@ -10,7 +10,7 @@ from guardrails import guard
 from fastapi.concurrency import run_in_threadpool
 import asyncio
 from pydantic import BaseModel
-
+from utils.audit_logger import log_action
 router = APIRouter()
 
 monitor = MonitorAgent()
@@ -78,6 +78,10 @@ async def diagnose_incident(
     )
     db.add(new_incident)
     db.commit()
+    db.refresh(new_incident)
+
+    log_action(db, current_user, "incident_created", resource_type="incident", resource_id=new_incident.id, details=f"Severity: {anomaly.get('severity')}")
+
     
     from cache import clear_prefix
     clear_prefix("admin_metrics")
@@ -130,6 +134,8 @@ async def upload_log_files(
         lines = text.split('\n')
         all_logs.extend([line.strip() for line in lines if line.strip()])
         file_names.append(file.filename)
+        log_action(db, current_user, "logs_uploaded", 
+               details=f"Uploaded {len(file_names)} files, {len(all_logs)} lines")
     return {
         "file_names": file_names,
         "total_lines": len(all_logs),

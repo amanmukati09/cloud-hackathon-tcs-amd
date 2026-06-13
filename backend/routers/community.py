@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from models import get_db, User, CommunityPost, CommunityComment, PostLike, CommentLike
 from auth import get_current_user
+from utils.audit_logger import log_action
 
 router = APIRouter()
 
@@ -48,6 +49,7 @@ async def create_post(
     post = CommunityPost(user_id=current_user.id, content=payload.content.strip())
     db.add(post)
     db.commit()
+    log_action(db, current_user, "post_created", resource_type="post", resource_id=post.id)
     return {"status": "success", "post_id": post.id}
 
 # ── Delete post ───────────────────────────────────────
@@ -64,6 +66,8 @@ async def delete_post(
         raise HTTPException(status_code=403, detail="Access Denied")
     db.delete(post)
     db.commit()
+    log_action(db, current_user, "delete_post", resource_type="post", resource_id=post.id)
+
     return {"status": "success"}
 
 # ── Like/unlike post ──────────────────────────────────
@@ -82,6 +86,7 @@ async def like_post(
         return {"status": "unliked"}
     db.add(PostLike(post_id=post_id, user_id=current_user.id))
     db.commit()
+
     return {"status": "liked"}
 
 # ── Get comments for a post ───────────────────────────
@@ -108,6 +113,7 @@ async def get_comments(
             "likes": like_count,
             "user_liked": user_liked
         })
+
     return result
 
 # ── Add comment to post ───────────────────────────────
@@ -125,6 +131,7 @@ async def add_comment(
     )
     db.add(comment)
     db.commit()
+
     return {"status": "success"}
 
 # ── Delete comment ────────────────────────────────────
@@ -141,6 +148,7 @@ async def delete_comment(
         raise HTTPException(status_code=403, detail="Access Denied")
     db.delete(comment)
     db.commit()
+
     return {"status": "success"}
 
 # ── Like/unlike comment ───────────────────────────────
@@ -156,7 +164,9 @@ async def like_comment(
     if existing:
         db.delete(existing)
         db.commit()
+
         return {"status": "unliked"}
     db.add(CommentLike(comment_id=comment_id, user_id=current_user.id))
     db.commit()
+
     return {"status": "liked"}

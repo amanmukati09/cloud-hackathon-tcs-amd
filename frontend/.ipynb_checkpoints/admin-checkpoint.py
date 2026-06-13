@@ -3,155 +3,246 @@ import requests
 import pandas as pd
 import re
 from utils import BACKEND_URL
+from datetime import datetime
+
 
 def load_admin_data(token):
-    if not token: return 0, 0, 0, pd.DataFrame()
-    try:
-        m_res = requests.get(f"{BACKEND_URL}/admin/metrics", headers={"Authorization": f"Bearer {token}"}, timeout=5)
-        u_res = requests.get(f"{BACKEND_URL}/admin/users?limit=50", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        # ... rest unchanged
-    except requests.exceptions.Timeout:
-        print("Admin data timeout")
-        return 0, 0, 0, pd.DataFrame()
-    except: return 0, 0, 0, pd.DataFrame()
-
-        
-
-def fetch_analytics(token):
     if not token: 
-        return pd.DataFrame(columns=["date", "Incidents"]), pd.DataFrame(columns=["Severity", "Count"]), pd.DataFrame(columns=["status", "Count"])
+        return 0, 0, 0, pd.DataFrame()
     try:
-        res = requests.get(f"{BACKEND_URL}/admin/analytics/data", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if res.status_code != 200: 
-            return pd.DataFrame(columns=["date", "Incidents"]), pd.DataFrame(columns=["Severity", "Count"]), pd.DataFrame(columns=["status", "Count"])
+        m_res = requests.get(
+            f"{BACKEND_URL}/admin/metrics", 
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5
+        )
+        u_res = requests.get(
+            f"{BACKEND_URL}/admin/users?limit=50", 
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        users, incidents, chats = 0, 0, 0
+        df = pd.DataFrame()
+        if m_res.status_code == 200:
+            m = m_res.json()
+            users = m.get("users", 0)
+            incidents = m.get("incidents", 0)
+            chats = m.get("chats", 0)
+        if u_res.status_code == 200:
+            data = u_res.json()
+            if data:
+                df = pd.DataFrame(data)
+        return users, incidents, chats, df
+    except requests.exceptions.Timeout:
+        print("Admin data timeout - returning empty")
+        return 0, 0, 0, pd.DataFrame()
+    except Exception as e:
+        print(f"Admin data error: {e}")
+        return 0, 0, 0, pd.DataFrame()
+
+def fetch_analytics(token, days=30, severity="ALL"):
+    if not token:
+        return (
+            pd.DataFrame({"date": [], "Incidents": []}),
+            pd.DataFrame({"Severity": [], "Count": []}),
+            pd.DataFrame({"status": [], "Count": []})
+        )
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/admin/analytics/data?days={days}&severity={severity}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code != 200:
+            return (
+                pd.DataFrame({"date": [], "Incidents": []}),
+                pd.DataFrame({"Severity": [], "Count": []}),
+                pd.DataFrame({"status": [], "Count": []})
+            )
         
         df = pd.DataFrame(res.json())
-        if df.empty: 
-            return pd.DataFrame(columns=["date", "Incidents"]), pd.DataFrame(columns=["Severity", "Count"]), pd.DataFrame(columns=["status", "Count"])
+        if df.empty:
+            return (
+                pd.DataFrame({"date": [], "Incidents": []}),
+                pd.DataFrame({"Severity": [], "Count": []}),
+                pd.DataFrame({"status": [], "Count": []})
+            )
         
+        # Extract severity from description
         df['Severity'] = df['description'].apply(
-            lambda x: re.search(r'Severity:\s*([A-Z]+)', str(x)).group(1) 
+            lambda x: re.search(r'Severity:\s*([A-Z]+)', str(x)).group(1)
             if re.search(r'Severity:\s*([A-Z]+)', str(x)) else 'UNKNOWN'
         )
         
+        # Timeline chart
         timeline_df = df.groupby('date').size().reset_index(name='Incidents')
         timeline_df['date'] = pd.to_datetime(timeline_df['date'])
         timeline_df = timeline_df.sort_values('date')
         
+        # If empty, create dummy row so chart renders
+        if timeline_df.empty:
+            timeline_df = pd.DataFrame({"date": [datetime.now()], "Incidents": [0]})
+        
+        # Severity chart - ensure all categories exist
+        all_severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
         sev_df = df.groupby('Severity').size().reset_index(name='Count')
+        
+        # Fill missing severities with 0
+        for sev in all_severities:
+            if sev not in sev_df['Severity'].values:
+                sev_df = pd.concat([sev_df, pd.DataFrame({"Severity": [sev], "Count": [0]})], ignore_index=True)
+        
+        sev_df = sev_df[sev_df['Severity'].isin(all_severities)]
+        
+        # Status chart - ensure both statuses exist
         status_df = df.groupby('status').size().reset_index(name='Count')
         status_df['status'] = status_df['status'].str.upper()
         
+        for status in ["OPEN", "RESOLVED"]:
+            if status not in status_df['status'].values:
+                status_df = pd.concat([status_df, pd.DataFrame({"status": [status], "Count": [0]})], ignore_index=True)
+        
         return timeline_df, sev_df, status_df
+        
     except Exception as e:
         print(f"Analytics Error: {e}")
-        return pd.DataFrame(columns=["date", "Incidents"]), pd.DataFrame(columns=["Severity", "Count"]), pd.DataFrame(columns=["status", "Count"])
-
-def fetch_enhanced_analytics(token):
-    """Fetch enhanced analytics for the dashboard."""
-    if not token: 
         return (
-            pd.DataFrame(columns=["date", "rolling_avg"]),
-            pd.DataFrame(columns=["Severity", "Avg Hours", "Resolved Count"]),
-            pd.DataFrame(columns=["component", "incidents"]),
-            pd.DataFrame(columns=["weekday", "hour", "incidents"])
+            pd.DataFrame({"date": [datetime.now()], "Incidents": [0]}),
+            pd.DataFrame({"Severity": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"], "Count": [0, 0, 0, 0, 0]}),
+            pd.DataFrame({"status": ["OPEN", "RESOLVED"], "Count": [0, 0]})
         )
+
+        
+        
+
+def load_admin_data(token, days=30, severity="ALL"):
+    """Load admin metrics with filtering."""
+    if not token:
+        return 0, 0, 0, 0, 0, 0, pd.DataFrame()
+    try:
+        m_res = requests.get(
+            f"{BACKEND_URL}/admin/metrics?days={days}&severity={severity}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5
+        )
+        u_res = requests.get(
+            f"{BACKEND_URL}/admin/users?limit=50",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        users, incidents, chats, resolved, open_count, critical = 0, 0, 0, 0, 0, 0
+        df = pd.DataFrame()
+        
+        if m_res.status_code == 200:
+            m = m_res.json()
+            users = m.get("users", 0)
+            incidents = m.get("incidents", 0)
+            chats = m.get("chats", 0)
+            resolved = m.get("resolved", 0)
+            open_count = m.get("open", 0)
+            critical = m.get("critical", 0)
+        
+        if u_res.status_code == 200:
+            data = u_res.json()
+            if data:
+                df = pd.DataFrame(data)
+        
+        return users, incidents, chats, resolved, open_count, critical, df
+    except Exception as e:
+        print(f"Admin data error: {e}")
+        return 0, 0, 0, 0, 0, 0, pd.DataFrame()
+
+        
+def fetch_predictions(token):
+    """Fetch incident predictions."""
+    if not token:
+        return gr.update(value="*Login as admin to view predictions*")
     try:
         res = requests.get(
-            f"{BACKEND_URL}/admin/analytics/enhanced",
-            headers={"Authorization": f"Bearer {token}"}, timeout=10
+            f"{BACKEND_URL}/admin/predictions",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
         )
         if res.status_code == 200:
             data = res.json()
-            
-            # 1. Trend Data
-            trend_list = data.get("trend", [])
-            if trend_list:
-                trend_df = pd.DataFrame(trend_list)
-                trend_df['date'] = pd.to_datetime(trend_df['date'])
-            else:
-                trend_df = pd.DataFrame(columns=["date", "count", "rolling_avg"])
-            
-            # 2. Components Data
-            comp_list = data.get("components", [])
-            if comp_list:
-                comp_df = pd.DataFrame(comp_list)
-            else:
-                comp_df = pd.DataFrame(columns=["component", "incidents"])
-            
-            # 3. MTTR Data
-            mttr_list = data.get("mttr_by_severity", [])
-            if mttr_list:
-                mttr_df = pd.DataFrame(mttr_list)
-                mttr_df = mttr_df.rename(columns={
-                    "severity": "Severity", 
-                    "avg_hours": "Avg Hours", 
-                    "count": "Resolved Count"
-                })
-            else:
-                mttr_df = pd.DataFrame(columns=["Severity", "Avg Hours", "Resolved Count"])
-            
-            # 4. Heatmap Data
-            heatmap_list = data.get("heatmap", [])
-            if heatmap_list:
-                heatmap_df = pd.DataFrame(heatmap_list)
-            else:
-                heatmap_df = pd.DataFrame(columns=["weekday", "hour", "incidents"])
-            
-            return trend_df, comp_df, mttr_df, heatmap_df
-            
+            risk_color = {"HIGH": "#ef4444", "MEDIUM": "#f59e0b", "LOW": "#10b981"}
+            risk = data.get('risk_level', 'LOW')
+            html = f"""### AI Predictions
+**Risk Level:** <span style="color:{risk_color.get(risk, '#10b981')};font-weight:bold;">{risk}</span>
+
+{data.get('summary', '')}
+
+---
+"""
+            for p in data.get("predictions", []):
+                conf_color = "#10b981" if p["confidence"] > 70 else "#f59e0b" if p["confidence"] > 40 else "#ef4444"
+                html += f"""**{p['title']}** <span style="color:{conf_color};font-size:0.8em;">({p['confidence']:.0f}%)</span>
+{p['detail']}
+
+"""
+            return gr.update(value=html)
+        else:
+            return gr.update(value="*Admin access required*")
     except Exception as e:
-        print(f"Enhanced Analytics Error: {e}")
-    
-    return (
-        pd.DataFrame(columns=["date", "rolling_avg"]),
-        pd.DataFrame(columns=["Severity", "Avg Hours", "Resolved Count"]),
-        pd.DataFrame(columns=["component", "incidents"]),
-        pd.DataFrame(columns=["weekday", "hour", "incidents"])
-    )
+        print(f"Prediction error: {e}")
+        return gr.update(value="*Failed to load predictions*")
 
 def purge_user(token, target_id):
-    if not target_id: 
+    if not target_id:
         data = load_admin_data(token)
-        return data[0], data[1], data[2], data[3], gr.update(value="⚠️ **Notice:** Please enter a valid User ID to delete.")
+        return data[0], data[1], data[2], data[3], gr.update(value="Please enter a valid User ID.")
     try:
-        res = requests.delete(f"{BACKEND_URL}/admin/users/{int(target_id)}", headers={"Authorization": f"Bearer {token}"})
-        data = load_admin_data(token) 
-        if res.status_code == 200: return data[0], data[1], data[2], data[3], gr.update(value=f"✅ **Success:** User ID {int(target_id)} permanently deleted.")
-        else: return data[0], data[1], data[2], data[3], gr.update(value=f"❌ **Action Rejected:** {res.json().get('detail', 'Unknown')}")
-    except Exception as e: 
+        res = requests.delete(
+            f"{BACKEND_URL}/admin/users/{int(target_id)}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
         data = load_admin_data(token)
-        return data[0], data[1], data[2], data[3], gr.update(value=f"❌ **Connection Error:** {e}")
+        if res.status_code == 200:
+            return data[0], data[1], data[2], data[3], gr.update(value=f"User ID {int(target_id)} permanently deleted.")
+        else:
+            detail = res.json().get('detail', 'Unknown error')
+            return data[0], data[1], data[2], data[3], gr.update(value=f"Action Rejected: {detail}")
+    except Exception as e:
+        data = load_admin_data(token)
+        return data[0], data[1], data[2], data[3], gr.update(value=f"Error: {e}")
 
 def inspect_user_data(token, target_id):
     if not target_id:
-        return pd.DataFrame(), pd.DataFrame(), gr.update(value="⚠️ Please enter a User ID.")
+        return pd.DataFrame(), pd.DataFrame(), gr.update(value="Please enter a User ID.")
     try:
-        # First check if user exists
+        # Check if user exists
         res = requests.get(
             f"{BACKEND_URL}/admin/users/{int(target_id)}/exists",
-            headers={"Authorization": f"Bearer {token}"}, timeout=10
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5
         )
         if res.status_code == 200:
             if not res.json().get("exists", False):
-                return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"❌ User ID {int(target_id)} does not exist.")
+                return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"User ID {int(target_id)} does not exist.")
         else:
-            return pd.DataFrame(), pd.DataFrame(), gr.update(value="❌ Access Denied.")
-        
+            return pd.DataFrame(), pd.DataFrame(), gr.update(value="Access Denied.")
+
         # Fetch incidents and chats
         inc_res = requests.get(
             f"{BACKEND_URL}/admin/users/{int(target_id)}/incidents",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
         )
         chat_res = requests.get(
             f"{BACKEND_URL}/admin/users/{int(target_id)}/chats",
-            headers={"Authorization": f"Bearer {token}"}
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
         )
         df_inc = pd.DataFrame(inc_res.json()) if inc_res.status_code == 200 else pd.DataFrame()
         df_chat = pd.DataFrame(chat_res.json()) if chat_res.status_code == 200 else pd.DataFrame()
-        return df_inc, df_chat, gr.update(value=f"✅ Loaded activity for User ID: {int(target_id)}")
+        return df_inc, df_chat, gr.update(value=f"Loaded activity for User ID: {int(target_id)}")
     except Exception as e:
-        return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"❌ Error: {e}")
+        return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"Error: {e}")
+
+        
+
+        
+
 
 def fetch_predictions(token):
     """Fetch incident predictions."""
@@ -190,3 +281,285 @@ def fetch_predictions(token):
     except Exception as e:
         print(f"Prediction error: {e}")
     return gr.update(value="*Failed to load predictions*")
+
+    
+
+def fetch_clusters(token):
+    """Fetch incident clusters."""
+    if not token:
+        return gr.update(value="*Login as admin to view clusters*")
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/admin/clusters",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return gr.update(value=data.get("html", "*No clusters found*"))
+    except Exception as e:
+        print(f"Cluster error: {e}")
+    return gr.update(value="*Failed to load clusters*")
+
+def get_rate_limit_status(token):
+    """Check current rate limit status."""
+    if not token:
+        return "Not authenticated"
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/admin/rate-limit-status",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5
+        )
+        if res.status_code == 200:
+            data = res.json()
+            return f"Requests: {data['current']}/{data['limit']} per minute"
+    except:
+        pass
+    return "Rate limit: 60 req/min"
+
+def fetch_audit_logs(token):
+    if not token:
+        return pd.DataFrame()
+    try:
+        res = requests.get(f"{BACKEND_URL}/admin/audit-logs?limit=50", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if res.status_code == 200:
+            return pd.DataFrame(res.json())
+    except:
+        pass
+    return pd.DataFrame()
+
+def fetch_workspaces(token):
+    if not token: return pd.DataFrame()
+    try:
+        res = requests.get(f"{BACKEND_URL}/workspaces", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                return pd.DataFrame(data)
+    except: pass
+    return pd.DataFrame()
+
+def create_workspace(name, description, token):
+    if not name.strip() or not token: return pd.DataFrame()
+    try:
+        res = requests.post(f"{BACKEND_URL}/workspaces", json={"name": name, "description": description}, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if res.status_code == 200:
+            gr.Info(f"Workspace '{name}' created!")
+    except: pass
+    return fetch_workspaces(token)
+
+def fetch_workspaces(token):
+    """Fetch all workspaces for the current user."""
+    if not token:
+        return pd.DataFrame(), []
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/workspaces",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                df = pd.DataFrame(data)
+                df = df[["id", "name", "description", "role", "member_count", "created_at"]]
+                df.columns = ["ID", "Name", "Description", "Role", "Members", "Created"]
+                choices = [f"{row['ID']} - {row['Name']}" for _, row in df.iterrows()]
+                return df, choices
+    except:
+        pass
+    return pd.DataFrame(), []
+
+def create_workspace(name, description, token):
+    """Create a new workspace."""
+    if not name or not name.strip() or not token:
+        return fetch_workspaces(token)
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/workspaces",
+            json={"name": name.strip(), "description": description.strip() if description else ""},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            gr.Info(f"✅ Workspace '{name.strip()}' created!")
+        else:
+            gr.Warning(f"❌ {res.json().get('detail', 'Failed')}")
+    except Exception as e:
+        gr.Warning(f"❌ Error: {e}")
+    return fetch_workspaces(token)
+
+def delete_workspace(workspace_id, token):
+    """Delete a workspace (owner only)."""
+    if not workspace_id or not token:
+        return fetch_workspaces(token)
+    try:
+        res = requests.delete(
+            f"{BACKEND_URL}/workspaces/{int(workspace_id)}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            gr.Info("✅ Workspace deleted!")
+        else:
+            gr.Warning("❌ Failed to delete workspace")
+    except:
+        pass
+    return fetch_workspaces(token)
+
+def fetch_workspace_members(workspace_id, token):
+    """Fetch members of a workspace."""
+    if not workspace_id or not token:
+        return pd.DataFrame()
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/workspaces/{int(workspace_id)}/members",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                df = pd.DataFrame(data)
+                df = df[["user_id", "name", "email", "role", "joined_at"]]
+                df.columns = ["User ID", "Name", "Email", "Role", "Joined"]
+                return df
+    except:
+        pass
+    return pd.DataFrame()
+
+def add_workspace_member(workspace_id, user_id, token):
+    """Add a member to a workspace."""
+    if not workspace_id or not user_id or not token:
+        return fetch_workspace_members(workspace_id, token), ""
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/workspaces/{int(workspace_id)}/members",
+            json={"user_id": int(user_id), "role": "member"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            return fetch_workspace_members(workspace_id, token), f"✅ User {user_id} added!"
+        else:
+            return fetch_workspace_members(workspace_id, token), f"❌ {res.json().get('detail', 'Failed')}"
+    except Exception as e:
+        return fetch_workspace_members(workspace_id, token), f"❌ Error: {e}"
+
+def fetch_api_keys(token):
+    """Fetch user's API keys."""
+    if not token:
+        return pd.DataFrame()
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/api-keys",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                df = pd.DataFrame(data)
+                return df
+    except:
+        pass
+    return pd.DataFrame()
+
+def create_api_key(name, expires_days, token):
+    """Create a new API key."""
+    if not name.strip() or not token:
+        return pd.DataFrame(), ""
+    try:
+        payload = {"name": name.strip()}
+        if expires_days and int(expires_days) > 0:
+            payload["expires_in_days"] = int(expires_days)
+        
+        res = requests.post(
+            f"{BACKEND_URL}/api-keys",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            key = data.get("key", "")
+            df = fetch_api_keys(token)
+            return df, f"🔑 Your API Key (copy now - shown only once!):\n\n`{key}`"
+        else:
+            return fetch_api_keys(token), f"❌ Failed: {res.json().get('detail', 'Error')}"
+    except Exception as e:
+        return fetch_api_keys(token), f"❌ Error: {e}"
+
+def revoke_api_key(key_id, token):
+    """Revoke an API key."""
+    if not key_id or not token:
+        return fetch_api_keys(token)
+    try:
+        res = requests.delete(
+            f"{BACKEND_URL}/api-keys/{int(key_id)}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            gr.Info("✅ API key revoked!")
+        else:
+            gr.Warning("❌ Failed to revoke")
+    except:
+        pass
+    return fetch_api_keys(token)
+
+def fetch_dashboard_summary(token, days=30, severity="ALL"):
+    if not token:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/dashboard/summary?days={days}&severity={severity}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            metrics = data.get("metrics", {})
+            timeline = data.get("timeline", {})
+            
+            # Create metrics table
+            metrics_df = pd.DataFrame([{
+                "Metric": "Total Incidents", "Value": metrics.get("total_incidents", 0)
+            }, {
+                "Metric": "Resolved", "Value": f"{metrics.get('resolved', 0)} ({metrics.get('resolution_rate', 0)}%)"
+            }, {
+                "Metric": "Open", "Value": metrics.get("open", 0)
+            }, {
+                "Metric": "Critical", "Value": metrics.get("critical", 0)
+            }, {
+                "Metric": "MTTR", "Value": f"{metrics.get('mttr_hours', 0)} hours"
+            }])
+            
+            # Create timeline dataframe
+            timeline_df = pd.DataFrame({
+                "date": timeline.get("dates", []),
+                "incidents": timeline.get("counts", [])
+            })
+            
+            return metrics_df, timeline_df, data.get("period", "")
+    except:
+        pass
+    return pd.DataFrame(), pd.DataFrame(), ""
+
+def fetch_recent_activity(token):
+    if not token:
+        return pd.DataFrame()
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/dashboard/recent-activity",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                return pd.DataFrame(data)
+    except:
+        pass
+    return pd.DataFrame()

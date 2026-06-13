@@ -6,10 +6,14 @@ from pydantic import BaseModel
 from typing import Optional
 import re
 import pandas as pd
-
 from models import get_db, User, Incident, ChatSession, ChatMessage, EscalationTicket
 from auth import get_current_user
 from cache import cached, clear_prefix
+from fastapi import Request
+import time
+from cache import _redis
+from datetime import datetime, timedelta
+
 
 router = APIRouter()
 
@@ -18,64 +22,128 @@ router = APIRouter()
 @cached("admin_metrics", ttl=60)
 async def get_admin_metrics(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    days: int = 30,
+    severity: str = "ALL"
 ):
+    """Get filtered metrics for admin dashboard."""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    
+    # Base queries
+    query = db.query(Incident)
+    if days > 0:
+        query = query.filter(Incident.timestamp >= cutoff)
+    if severity and severity != "ALL":
+        query = query.filter(Incident.anomaly_description.ilike(f"%Severity: {severity}%"))
+    
+    total_incidents = query.count()
+    resolved = query.filter(Incident.status == "resolved").count()
+    open_count = query.filter(Incident.status == "open").count()
+    critical = query.filter(Incident.anomaly_description.ilike("%CRITICAL%")).count()
+    
     return {
         "users": db.query(User).count(),
-        "incidents": db.query(Incident).count(),
-        "chats": db.query(ChatSession).count()
+        "incidents": total_incidents,
+        "chats": db.query(ChatSession).count(),
+        "resolved": resolved,
+        "open": open_count,
+        "critical": critical,
+        "resolution_rate": round(resolved / total_incidents * 100, 1) if total_incidents > 0 else 0
     }
 
+    
 # ── Analytics data ────────────────────────────────────
 @router.get("/admin/analytics/data")
 async def get_analytics_data(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    days: int = 30,
+    severity: str = "ALL"
 ):
+    """Fetches filtered incident data for the Analytics Dashboard."""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    incidents = db.query(Incident).all()
+    
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    
+    query = db.query(Incident).filter(Incident.timestamp >= cutoff)
+    if severity and severity != "ALL":
+        query = query.filter(Incident.anomaly_description.ilike(f"%Severity: {severity}%"))
+    
+    incidents = query.order_by(Incident.timestamp.desc()).all()
+    
     return [{
         "date": i.timestamp.strftime("%Y-%m-%d"),
         "status": i.status,
         "description": i.anomaly_description
     } for i in incidents]
 
+    
+
 # ── Enhanced analytics ────────────────────────────────
 @router.get("/admin/analytics/enhanced")
 async def get_enhanced_analytics(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    days: int = 30,
+    severity: str = "ALL"
 ):
+    """Enhanced analytics with trends, components, and MTTR by severity."""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    incidents = db.query(Incident).all()
+    
+    from datetime import timedelta
+    
+    # Apply filters
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    query = db.query(Incident).filter(Incident.timestamp >= cutoff)
+    if severity and severity != "ALL":
+        query = query.filter(Incident.anomaly_description.ilike(f"%Severity: {severity}%"))
+    
+    incidents = query.all()
+    
     if not incidents:
-        return {"trend": [], "components": [], "mttr_by_severity": [], "heatmap": []}
-
+        return {
+            "trend": [],
+            "components": [],
+            "mttr_by_severity": [],
+            "heatmap": [],
+            "total_filtered": 0,
+            "period": f"Last {days} days",
+            "severity_filter": severity
+        }
+    
+    # Convert to DataFrame
     data = []
     for inc in incidents:
         severity_match = re.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
         component_match = re.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
-        severity = severity_match.group(1) if severity_match else "UNKNOWN"
-        component = component_match.group(1).strip() if component_match else "Unknown"
+        
+        sev = severity_match.group(1) if severity_match else "UNKNOWN"
+        comp = component_match.group(1).strip() if component_match else "Unknown"
+        
         resolution_hours = None
         if inc.resolved_at and inc.status == "resolved":
             resolution_hours = (inc.resolved_at - inc.timestamp).total_seconds() / 3600
+        
         data.append({
             "date": inc.timestamp.strftime("%Y-%m-%d"),
             "hour": inc.timestamp.hour,
             "weekday": inc.timestamp.strftime("%A"),
-            "severity": severity,
-            "component": component,
+            "severity": sev,
+            "component": comp,
             "status": inc.status,
             "resolution_hours": resolution_hours
         })
-
+    
     df = pd.DataFrame(data)
-
+    
+    # 1. 7-Day Rolling Average Trend
     daily = df.groupby('date').size().reset_index(name='count')
     daily['date'] = pd.to_datetime(daily['date'])
     daily = daily.sort_values('date')
@@ -83,27 +151,46 @@ async def get_enhanced_analytics(
     trend_data = daily[['date', 'count', 'rolling_avg']].tail(30).to_dict('records')
     for item in trend_data:
         item['date'] = item['date'].strftime("%Y-%m-%d")
-
+    
+    # 2. Top Affected Components
     components = df.groupby('component').size().reset_index(name='incidents')
     components = components.sort_values('incidents', ascending=False).head(8)
     component_data = components.to_dict('records')
-
+    
+    # 3. MTTR by Severity
     resolved = df[df['resolution_hours'].notna()]
-    mttr = resolved.groupby('severity')['resolution_hours'].agg(['mean', 'count']).round(1)
-    mttr = mttr.reset_index()
-    mttr.columns = ['severity', 'avg_hours', 'count']
-    mttr_data = mttr.to_dict('records')
-
+    mttr_data = []
+    if not resolved.empty:
+        mttr = resolved.groupby('severity')['resolution_hours'].agg(['mean', 'count']).round(1)
+        mttr = mttr.reset_index()
+        mttr.columns = ['severity', 'avg_hours', 'count']
+        mttr_data = mttr.to_dict('records')
+    
+    # 4. Heatmap (Day of Week vs Hour)
     heatmap = df.groupby(['weekday', 'hour']).size().reset_index(name='incidents')
     heatmap_data = heatmap.to_dict('records')
-
+    
+    # 5. Severity Distribution
+    severity_dist = df.groupby('severity').size().reset_index(name='count')
+    severity_data = severity_dist.to_dict('records')
+    
+    # 6. Status Distribution
+    status_dist = df.groupby('status').size().reset_index(name='count')
+    status_data = status_dist.to_dict('records')
+    
     return {
         "trend": trend_data,
         "components": component_data,
         "mttr_by_severity": mttr_data,
-        "heatmap": heatmap_data
+        "heatmap": heatmap_data,
+        "severity_distribution": severity_data,
+        "status_distribution": status_data,
+        "total_filtered": len(incidents),
+        "period": f"Last {days} days",
+        "severity_filter": severity
     }
 
+    
 # ── Predictions ───────────────────────────────────────
 @router.get("/admin/predictions")
 async def get_incident_predictions(
@@ -340,6 +427,14 @@ async def get_my_escalations(
 class AlertConfigRequest(BaseModel):
     slack_webhook: Optional[str] = None
     teams_webhook: Optional[str] = None
+    pagerduty_key: Optional[str] = None
+    opsgenie_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: Optional[str] = None
+    alert_emails: Optional[str] = None  # comma-separated
 
 @router.post("/admin/alerts/configure")
 async def configure_alerts(
@@ -349,10 +444,28 @@ async def configure_alerts(
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
+    
     from agents.alerting import AlertManager
     mgr = AlertManager()
-    mgr.configure(slack_url=config.slack_webhook, teams_url=config.teams_webhook)
-    return {"status": "success"}
+    
+    smtp_config = {}
+    if config.smtp_host: smtp_config["host"] = config.smtp_host
+    if config.smtp_port: smtp_config["port"] = config.smtp_port
+    if config.smtp_username: smtp_config["username"] = config.smtp_username
+    if config.smtp_password: smtp_config["password"] = config.smtp_password
+    if config.smtp_from: smtp_config["from_email"] = config.smtp_from
+    if config.alert_emails: smtp_config["to_emails"] = [e.strip() for e in config.alert_emails.split(",") if e.strip()]
+    
+    mgr.configure(
+        slack_url=config.slack_webhook,
+        teams_url=config.teams_webhook,
+        pagerduty_key=config.pagerduty_key,
+        opsgenie_key=config.opsgenie_key,
+        smtp_config=smtp_config if smtp_config else None
+    )
+    
+    return {"status": "success", "message": "Alert configuration updated"}
+    
 
 @router.post("/admin/alerts/test")
 async def test_alert(
@@ -367,3 +480,24 @@ async def test_alert(
                  "affected_component": "Alert", "description": "Test alert",
                  "root_cause": "Testing", "remediation": "None", "timestamp": "Now"}
     return {"status": "success", "results": mgr.send_incident_alert(test_data)}
+
+
+    
+@router.get("/admin/rate-limit-status")
+async def rate_limit_status(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Get current rate limit status for the user."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    user_id = request.headers.get("authorization", request.client.host)
+    key = f"rate_limit:{user_id}:{int(time.time() / 60)}"
+    current = _redis.get(key)
+    
+    return {
+        "current": int(current) if current else 0,
+        "limit": 60,
+        "window": "1 minute"
+    }

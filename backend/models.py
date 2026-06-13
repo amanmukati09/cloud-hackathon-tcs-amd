@@ -52,6 +52,8 @@ class Incident(Base):
     resolved_at = Column(DateTime, nullable=True)
     resolution_notes = Column(Text, nullable=True)
     owner = relationship("User", back_populates="incidents")
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True)
+
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
@@ -62,6 +64,8 @@ class ChatSession(Base):
 
     owner = relationship("User", back_populates="chat_sessions")
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True)
+
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
@@ -137,6 +141,56 @@ class Notification(Base):
 
     # owner is defined via backref in User
 
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_email = Column(String, nullable=True)
+    action = Column(String, nullable=False)  # e.g., "login", "incident_created", "chat_deleted"
+    resource_type = Column(String, nullable=True)  # e.g., "incident", "chat_session"
+    resource_id = Column(String, nullable=True)  # e.g., "42"
+    details = Column(Text, nullable=True)  # Extra info
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="audit_logs")
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    owner = relationship("User", backref="owned_workspaces")
+    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role = Column(String, default="member")  # "admin" or "member"
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="members")
+    user = relationship("User", backref="workspace_memberships")
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)  # e.g., "Production Server", "CI/CD Pipeline"
+    key_hash = Column(String, nullable=False, unique=True)  # Hashed key
+    key_prefix = Column(String, nullable=False)  # First 8 chars for display (e.g., "aegis_sk...")
+    is_active = Column(Boolean, default=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+    owner = relationship("User", backref="api_keys")
+    
 Base.metadata.create_all(bind=engine)
 
 # Add missing columns if they don't exist
@@ -155,3 +209,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

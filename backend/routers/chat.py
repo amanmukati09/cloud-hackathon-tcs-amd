@@ -11,6 +11,7 @@ from agents.chat import ChatAgent
 from guardrails import guard
 from fastapi.concurrency import run_in_threadpool
 from cache import cached, clear_prefix
+from utils.audit_logger import log_action
 
 router = APIRouter()
 chat_agent = ChatAgent()
@@ -89,6 +90,12 @@ async def send_chat_message(
         new_session = ChatSession(user_id=current_user.id, title=title)
         db.add(new_session); db.commit(); db.refresh(new_session)
         session_id = new_session.id
+        
+        # 🆕 Audit log
+        log_action(db, current_user, "chat_created", 
+                   resource_type="chat_session", 
+                   resource_id=session_id)
+        
         clear_prefix("chat_sessions")
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
@@ -162,6 +169,12 @@ async def send_chat_message_stream(
         new_session = ChatSession(user_id=current_user.id, title=title)
         db.add(new_session); db.commit(); db.refresh(new_session)
         session_id = new_session.id
+        
+        # 🆕 Audit log
+        log_action(db, current_user, "chat_created", 
+                   resource_type="chat_session", 
+                   resource_id=session_id)
+        
         clear_prefix("chat_sessions")
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
@@ -310,6 +323,12 @@ async def delete_chat_session(
     db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()
     db.delete(session)
     db.commit()
+    
+    # 🆕 Audit log
+    log_action(db, current_user, "chat_deleted", 
+               resource_type="chat_session", 
+               resource_id=session_id)
+    
     clear_prefix("chat_sessions")
 
     from routers.notifications import create_notification
@@ -343,6 +362,13 @@ async def rename_chat_session(
         raise HTTPException(status_code=400, detail="Title must be 1-100 characters")
     session.title = new_title
     db.commit()
+    
+    # 🆕 Audit log
+    log_action(db, current_user, "chat_renamed", 
+               resource_type="chat_session", 
+               resource_id=session_id, 
+               details=f"'{old_title}' → '{new_title}'")
+    
     clear_prefix("chat_sessions")
 
     from routers.notifications import create_notification

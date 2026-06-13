@@ -206,7 +206,7 @@ def get_available_models():
 def switch_model(model, token):
     """Switch the AI model."""
     if not model or not token:
-        return gr.update()
+        return  # Return nothing, not gr.update()
     try:
         res = requests.post(
             f"{BACKEND_URL}/chat/model/switch",
@@ -217,7 +217,7 @@ def switch_model(model, token):
             gr.Info(f"✅ Switched to {model}")
     except:
         gr.Warning("❌ Failed to switch model")
-    return gr.update()
+    # No return value - matches empty outputs list
 
 
 def send_chat_msg_stream(message, session_id, history, token):

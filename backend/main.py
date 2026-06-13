@@ -1,13 +1,25 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
 from auth import router as auth_router
-from routers import diagnosis, incidents, chat, community, admin, notifications
-from routers import workflow
+from routers import diagnosis, incidents, chat, community, admin, notifications, workflow, audit, workspace, api_keys, workers
+from middleware.rate_limit import RateLimitMiddleware
+from workers.tasks import start_worker, stop_worker
+from routers import dashboard
 
-# Add this line with other router includes:
 
-app = FastAPI(title="AegisAI Backend")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    start_worker()
+    yield
+    # Shutdown
+    stop_worker()
 
+app = FastAPI(title="AegisAI Backend", lifespan=lifespan)
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,7 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include all routers
+# Rate Limiting
+app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
+
+# Include routers
 app.include_router(auth_router)
 app.include_router(diagnosis.router)
 app.include_router(incidents.router)
@@ -25,6 +40,11 @@ app.include_router(community.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
 app.include_router(workflow.router)
+app.include_router(audit.router)
+app.include_router(workspace.router)
+app.include_router(api_keys.router)
+app.include_router(workers.router)
+app.include_router(dashboard.router)
 
 
 if __name__ == "__main__":

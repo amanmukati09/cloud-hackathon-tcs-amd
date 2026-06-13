@@ -82,10 +82,28 @@ def logout():
         gr.update(value=""), gr.update(value=""), gr.update(value=False), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=False),
         gr.update(value=None), pd.DataFrame(), pd.DataFrame(), gr.update(value=""),
         gr.update(value=""), pd.DataFrame(), gr.update(value=None), gr.update(value=""), pd.DataFrame(),
-        0, 0, 0, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        0, 0, 0, 0, 0, 0,  # 🆕 6 metrics
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),  # 3 charts
         pd.DataFrame(), gr.update(visible=False), gr.update(value=""),
         pd.DataFrame(), gr.update(visible=False), gr.update(value=None), gr.update(value=""), gr.update(value="*Select an incident to view details*"),
-        gr.update(visible=False),
-        "0", pd.DataFrame(),
-        pd.DataFrame(), pd.DataFrame(), None, None   # community components
+        gr.update(visible=False), "0", pd.DataFrame(),
+        pd.DataFrame(), pd.DataFrame(), None, None
     )
+
+def oauth_login_url(provider):
+    """Get OAuth login URL for a provider."""
+    return f"{BACKEND_URL}/auth/{provider}"
+
+def handle_oauth_token(token):
+    """Process OAuth token from URL parameter."""
+    if not token:
+        return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False), "0", pd.DataFrame()
+    try:
+        # Verify token and get user info
+        from jose import jwt
+        payload = jwt.decode(token, "super-secret-hackathon-key", algorithms=["HS256"])
+        user_id = payload.get("sub")
+        # We need to fetch user details... simplified for now
+        return token, gr.update(visible=False), gr.update(visible=True), "### 👋 Welcome!", "👤 User", gr.update(visible=False), "0", pd.DataFrame()
+    except:
+        return "", gr.update(visible=True), gr.update(visible=False), "", "", gr.update(visible=False), "0", pd.DataFrame()

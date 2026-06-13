@@ -197,3 +197,51 @@ def generate_code_fix(logs_text, token):
             return "<p style='color:#ef4444;'>Failed to generate code fixes</p>"
     except Exception as e:
         return f"<p style='color:#ef4444;'>Error: {str(e)}</p>"
+
+def async_diagnose(logs_text, token):
+    """Submit diagnosis to background worker."""
+    if not token or not logs_text.strip():
+        return "Paste logs and click 'Async Analyze'"
+    
+    try:
+        res = requests.post(
+            f"{BACKEND_URL}/async/diagnose",
+            json={"logs": [line.strip() for line in logs_text.split('\n') if line.strip()]},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            data = res.json()
+            task_id = data['task_id']
+            return f"✅ Task #{task_id} queued! Processing in background..."
+    except:
+        pass
+    return "❌ Failed to queue task"
+
+def check_async_task(task_id, token):
+    """Check status of a background task."""
+    if not task_id or not token:
+        return "No task to check"
+    
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/async/task/{int(task_id)}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5
+        )
+        if res.status_code == 200:
+            data = res.json()
+            status = data.get("status", "unknown")
+            result = data.get("result", "")
+            
+            if status == "completed":
+                return f"✅ **Task #{task_id} Complete!**\n\n```json\n{result[:500]}\n```"
+            elif status == "failed":
+                return f"❌ **Task #{task_id} Failed:** {result}"
+            elif status == "running":
+                return f"⏳ **Task #{task_id} Running...**"
+            else:
+                return f"📋 **Task #{task_id} Pending...**"
+    except:
+        pass
+    return "Failed to check task status"

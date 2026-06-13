@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel
 import csv, io, re
 from fastapi.responses import StreamingResponse
-
+from utils.audit_logger import log_action
 from models import get_db, User, Incident
 from auth import get_current_user
 
@@ -58,7 +58,10 @@ async def resolve_incident(
     incident.resolved_at = datetime.now(timezone.utc)
     if payload.resolution_notes:
         incident.resolution_notes = payload.resolution_notes
+
     db.commit()
+    log_action(db, current_user, "incident_resolved", resource_type="incident", resource_id=incident_id)
+
     from cache import clear_prefix
     clear_prefix("admin_metrics")
 
@@ -90,6 +93,8 @@ async def delete_incident(
 
     db.delete(incident)
     db.commit()
+    log_action(db, current_user, "delete_incident", resource_type="incident", resource_id=incident_id)
+
     from cache import clear_prefix
     clear_prefix("admin_metrics")
 
