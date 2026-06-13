@@ -7,7 +7,7 @@ from routers import diagnosis, incidents, chat, community, admin, notifications,
 from middleware.rate_limit import RateLimitMiddleware
 from workers.tasks import start_worker, stop_worker
 from routers import dashboard
-
+from routers import timeline
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +45,7 @@ app.include_router(workspace.router)
 app.include_router(api_keys.router)
 app.include_router(workers.router)
 app.include_router(dashboard.router)
+app.include_router(timeline.router)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,19 @@ from community import (
     load_comments_for_post, add_comment_to_post, delete_comment, like_comment
 )
 
+
+# PWA Head HTML
+pwa_head = """
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AegisAI">
+<meta name="theme-color" content="#0f172a">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="manifest" href="data:application/json;base64,ewogICAgIm5hbWUiOiAiQWVnaXNBSSAtIFNSRSBQbGF0Zm9ybSIsCiAgICAic2hvcnRfbmFtZSI6ICJBZWdpc0FJIiwKICAgICJkZXNjcmlwdGlvbiI6ICJBSS1Qb3dlcmVkIEluY2lkZW50IE1hbmFnZW1lbnQgUGxhdGZvcm0iLAogICAgInN0YXJ0X3VybCI6ICIvIiwKICAgICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICAgImJhY2tncm91bmRfY29sb3IiOiAiIzBmMTcyYSIsCiAgICAidGhlbWVfY29sb3IiOiAiIzM4YmRmOCIsCiAgICAiaWNvbnMiOiBbCiAgICAgICAgewogICAgICAgICAgICAic3JjIjogImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXZNUzloWkdkc2VYTXZabkFpSUhodGJHNXpQU0phWldOdmJTSWdkRzhnYzJoaGJtNWxiRDBpYVhOdmJpSWdaVzU0UFNJalAzc3ZMMjV6SWlCbWFXeHNQU0owY25WemRDMWphR0Z1YjJVaVB6NEtQR1JwYldVZ2JHOWpZV3hQYm1GMGFXOXVQVHd2WkdsdFpUNDhMM04wYVhScFpEND0iLAogICAgICAgICAgICAic2l6ZXMiOiAiMTkyeDE5MiIsCiAgICAgICAgICAgICJ0eXBlIjogImltYWdlL3N2Zyt4bWwiCiAgICAgICAgfQogICAgXQp9">
+"""
+
+
+
 def dismiss_download():
     return gr.update(visible=False), gr.update(value=None)
 
@@ -133,7 +146,7 @@ def handle_image_change(image, token):
     return gr.update(), gr.update()
 
 # --- UI LAYOUT ---
-with gr.Blocks(title="AegisAI") as demo:
+with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     session_token, current_chat_id = gr.State(""), gr.State(None)
     selected_post_id = gr.State(None)
     selected_comment_id = gr.State(None)
@@ -349,9 +362,8 @@ with gr.Blocks(title="AegisAI") as demo:
                         gr.Markdown("### 📤 Upload Screenshot")
                         gr.Markdown("*Upload a screenshot of error messages, dashboards, or logs for AI analysis*")
                         with gr.Column(elem_classes="image-upload-box"):
-                            
-                            image_upload = gr.File(file_count="single", label="Select image file", elem_classes="image-upload-area")                        
-                            with gr.Row(elem_classes="image-action-row"):
+                            image_upload = gr.File(file_count="single", label="Select image file", elem_classes="image-upload-area")
+                        with gr.Row(elem_classes="image-action-row"):
                             analyze_image_btn = gr.Button("🔍 Analyze Image", variant="primary", scale=3)
                             clear_image_btn = gr.Button("Clear", variant="stop", size="sm", scale=1)
                         image_result = gr.HTML(value="")
@@ -435,12 +447,20 @@ with gr.Blocks(title="AegisAI") as demo:
                             export_selected_pdf_btn = gr.Button("PDF Report", variant="secondary")
                         with gr.Row():
                             runbook_btn = gr.Button("Generate Runbook", variant="primary")
+                            timeline_btn = gr.Button("View Timeline", variant="primary")
+
                 with gr.Row(visible=False) as runbook_row:
                     with gr.Column(elem_classes="glass-card"):
                         with gr.Row():
                             gr.Markdown("### Generated Runbook", scale=4)
                             dismiss_runbook_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
                         runbook_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Select resolved incident → Generate Runbook</p>")
+                with gr.Row(visible=False) as timeline_row:
+                    with gr.Column(elem_classes="glass-card"):
+                        with gr.Row():
+                            gr.Markdown("### 📅 Incident Timeline", scale=4)
+                            dismiss_timeline_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
+                        timeline_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Select an incident to view timeline</p>")
 
             # SUPPORT TICKETS
             with gr.Tab("Support Tickets"):
@@ -517,6 +537,20 @@ with gr.Blocks(title="AegisAI") as demo:
                         create_api_key_btn = gr.Button("Generate", variant="primary")
                         api_key_output = gr.Markdown("")
 
+                        # GAMIFICATION
+            with gr.Tab("🏆 Gamification"):
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=1, elem_classes="glass-card"):
+                        gr.Markdown("### Your Progress")
+                        gamification_points = gr.HTML(value="")
+                        gamification_badges = gr.HTML(value="")
+                        refresh_gamification_btn = gr.Button("Refresh", variant="secondary")
+                    
+                    with gr.Column(scale=2, elem_classes="glass-card"):
+                        gr.Markdown("### 📊 Leaderboard")
+                        leaderboard_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+                        refresh_leaderboard_btn = gr.Button("Refresh Leaderboard", variant="secondary")
+
             # KNOWLEDGE BASE
             with gr.Tab("Knowledge Base"):
                 with gr.Row(equal_height=True):
@@ -571,6 +605,25 @@ with gr.Blocks(title="AegisAI") as demo:
         outputs=[image_result, image_analysis_output, image_upload]
     )
 
+    from incidents import fetch_incident_timeline
+
+    def dismiss_timeline():
+        return gr.update(visible=False), "<p style='color:#94a3b8;text-align:center;'>Select an incident to view timeline</p>"
+    
+    timeline_btn.click(
+        fn=fetch_incident_timeline,
+        inputs=[resolve_incident_id, session_token],
+        outputs=[timeline_output]
+    ).then(
+        fn=lambda: gr.update(visible=True),
+        outputs=[timeline_row]
+    )
+    
+    dismiss_timeline_btn.click(
+        fn=dismiss_timeline,
+        outputs=[timeline_row, timeline_output]
+    )
+
     send_to_chat_btn.click(
         fn=lambda text: (text, [], None, gr.update(value=None), gr.update(selected="tab_chat")),
         inputs=[image_analysis_output],
@@ -583,6 +636,20 @@ with gr.Blocks(title="AegisAI") as demo:
         inputs=[image_analysis_output],
         outputs=[logs_input, image_action_status, tabs_manager],
         queue=False
+    )
+
+    from admin import fetch_gamification_stats, fetch_leaderboard
+
+    refresh_gamification_btn.click(
+        fn=fetch_gamification_stats,
+        inputs=[session_token],
+        outputs=[gamification_points, gamification_badges, gr.State()]
+    )
+    
+    refresh_leaderboard_btn.click(
+        fn=fetch_leaderboard,
+        inputs=[session_token],
+        outputs=[leaderboard_table]
     )
 
     clear_btn.click(
@@ -612,7 +679,9 @@ with gr.Blocks(title="AegisAI") as demo:
     ).then(fn=get_available_models, outputs=[model_selector]
     ).then(fn=fetch_audit_logs, inputs=[session_token], outputs=[audit_logs_table]
     ).then(fn=fetch_workspaces, inputs=[session_token], outputs=[workspaces_table, gr.State()]
-    ).then(fn=fetch_api_keys, inputs=[session_token], outputs=[api_keys_table])
+    ).then(fn=fetch_api_keys, inputs=[session_token], outputs=[api_keys_table]
+    ).then(fn=fetch_gamification_stats, inputs=[session_token], outputs=[gamification_points, gamification_badges, gr.State()]
+    ).then(fn=fetch_leaderboard, inputs=[session_token], outputs=[leaderboard_table])
 
     register_btn.click(
         fn=api_register, inputs=[reg_email,reg_pass,reg_name],

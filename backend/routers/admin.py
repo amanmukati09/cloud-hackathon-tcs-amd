@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 import re
 import pandas as pd
-from models import get_db, User, Incident, ChatSession, ChatMessage, EscalationTicket
+from models import get_db, User, Incident, ChatSession, ChatMessage, EscalationTicket, CommunityPost
 from auth import get_current_user
 from cache import cached, clear_prefix
 from fastapi import Request
@@ -602,3 +602,104 @@ async def search_knowledge_base(
     results = [article for _, article in scored[:5]]
     
     return {"articles": results, "query": query, "count": len(results)}
+
+@router.get("/gamification/stats")
+async def get_gamification_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's gamification stats."""
+    from agents.gamification import GamificationEngine
+    
+    engine = GamificationEngine()
+    
+    # Calculate stats
+    stats = {
+        "incidents_created": db.query(Incident).filter(Incident.user_id == current_user.id).count(),
+        "incidents_resolved": db.query(Incident).filter(
+            Incident.user_id == current_user.id,
+            Incident.status == "resolved"
+        ).count(),
+        "chat_messages": db.query(ChatMessage).join(ChatSession).filter(
+            ChatSession.user_id == current_user.id
+        ).count(),
+        "community_posts": db.query(CommunityPost).filter(
+            CommunityPost.user_id == current_user.id
+        ).count(),
+        "tickets_answered": 0,  # Simplified for now
+        "kb_articles": 0,
+        "is_admin": current_user.is_admin,
+        "night_activity": False,
+        "fastest_resolution_hours": 999
+    }
+    
+    # Calculate fastest resolution
+    resolved = db.query(Incident).filter(
+        Incident.user_id == current_user.id,
+        Incident.status == "resolved",
+        Incident.resolved_at != None
+    ).all()
+    
+    for inc in resolved:
+        hours = (inc.resolved_at - inc.timestamp).total_seconds() / 3600
+        if hours < stats["fastest_resolution_hours"]:
+            stats["fastest_resolution_hours"] = hours
+    
+    # Calculate total points
+    points = 0
+    points += stats["incidents_created"] * engine.POINTS["incident_created"]
+    points += stats["incidents_resolved"] * engine.POINTS["incident_resolved"]
+    points += stats["chat_messages"] * engine.POINTS["chat_message"]
+    points += stats["community_posts"] * engine.POINTS["community_post"]
+    points += stats.get("fastest_resolution_hours", 999) < 1 and engine.POINTS["incident_resolved_fast"] or 0
+    
+    level_info = engine.calculate_level(points)
+    badges = engine.check_badges(stats)
+    
+    return {
+        "points": points,
+        "level": level_info,
+        "badges": badges,
+        "stats": stats
+    }
+
+@router.get("/gamification/leaderboard")
+async def get_leaderboard(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the leaderboard."""
+    from agents.gamification import GamificationEngine
+    
+    engine = GamificationEngine()
+    
+    # Get all users with their stats
+    users = db.query(User).all()
+    user_scores = []
+    
+    for user in users:
+        incidents = db.query(Incident).filter(Incident.user_id == user.id).count()
+        resolved = db.query(Incident).filter(
+            Incident.user_id == user.id,
+            Incident.status == "resolved"
+        ).count()
+        chats = db.query(ChatMessage).join(ChatSession).filter(
+            ChatSession.user_id == user.id
+        ).count()
+        posts = db.query(CommunityPost).filter(
+            CommunityPost.user_id == user.id
+        ).count()
+        
+        points = (incidents * 10) + (resolved * 50) + (chats * 2) + (posts * 15)
+        
+        user_scores.append({
+            "email": user.email,
+            "points": points,
+            "level": (points // 100) + 1,
+            "incidents": incidents,
+            "resolved": resolved
+        })
+    
+    leaderboard = engine.get_leaderboard(user_scores)
+    
+    return {"leaderboard": leaderboard}
