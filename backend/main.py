@@ -8,6 +8,10 @@ from middleware.rate_limit import RateLimitMiddleware
 from workers.tasks import start_worker, stop_worker
 from routers import dashboard
 from routers import timeline
+from routers import bulk_pdf
+from routers import train
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,6 +50,8 @@ app.include_router(api_keys.router)
 app.include_router(workers.router)
 app.include_router(dashboard.router)
 app.include_router(timeline.router)
+app.include_router(bulk_pdf.router)
+app.include_router(train.router)
 
 
 if __name__ == "__main__":

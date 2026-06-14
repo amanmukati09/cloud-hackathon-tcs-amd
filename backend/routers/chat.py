@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
-import json, asyncio
+import json, asyncio, subprocess
 
 from models import get_db, User, ChatSession, ChatMessage, Incident
 from auth import get_current_user
@@ -59,10 +59,7 @@ async def send_chat_message(
     # ─── Long‑Term Memory ─────────────────────────────
     memory_context = ""
     try:
-        # Store user message in long‑term memory
         memory_store.add_message(current_user.id, req.session_id or 0, "user", safe_message)
-
-        # Retrieve relevant past memories
         memories = memory_store.search_memories(current_user.id, safe_message, top_k=3)
         if memories:
             memory_parts = []
@@ -126,14 +123,12 @@ async def send_chat_message(
     user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
     db.add(user_msg); db.commit(); db.refresh(user_msg)
 
-    # ── Fetch previous messages for multi‑turn context ──
     prev = db.query(ChatMessage).filter(
         ChatMessage.session_id == session_id,
         ChatMessage.id < user_msg.id
     ).order_by(ChatMessage.timestamp.asc()).all()
     hist = [{"role": m.role, "content": m.content} for m in prev]
 
-    # ── Generate AI response ──
     async with ai_queue:
         ai_resp = await run_in_threadpool(chat_agent.generate_response, enforced_prompt, hist)
 
@@ -145,12 +140,10 @@ async def send_chat_message(
     ai_msg = ChatMessage(session_id=session_id, role="ai", content=ai_resp)
     db.add(ai_msg); db.commit()
 
-    # ── Store AI response in memory ──────────────────
     try:
         memory_store.add_message(current_user.id, session_id, "ai", ai_resp)
     except: pass
 
-    # ── Return full history ──
     msgs = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.asc()).all()
     chat_fmt, tmp = [], ""
     for m in msgs:
@@ -173,7 +166,6 @@ async def send_chat_message_stream(
     safe_message, _ = guard.mask_pii(req.message)
     security_context = guard.get_ollama_security_prompt()
 
-    # Memory (lightweight for streaming)
     memory_context = ""
     try:
         memories = memory_store.search_memories(current_user.id, safe_message, top_k=2)
@@ -183,7 +175,6 @@ async def send_chat_message_stream(
                 memory_context = "[LONG-TERM MEMORY]\n" + "\n".join(memory_parts) + "\n[/LONG-TERM MEMORY]"
     except: pass
 
-    # RAG (simplified)
     rag_context = ""
     try:
         from chroma_store import IncidentStore
@@ -199,7 +190,6 @@ async def send_chat_message_stream(
                 rag_context = "[PAST INCIDENTS]\n" + "\n".join(parts)
     except: pass
 
-    # Sentiment
     from agents.sentiment import SentimentAnalyzer
     sentiment = SentimentAnalyzer().analyze_message(safe_message)
     esc = "\n[⚠️ USER FRUSTRATED]" if sentiment.get("needs_escalation") else ""
@@ -207,7 +197,6 @@ async def send_chat_message_stream(
     prompt_parts = [security_context, memory_context, rag_context, esc, f"User Request:\n{safe_message}"]
     enforced_prompt = "\n\n".join([p for p in prompt_parts if p])
 
-    # Session
     session_id = req.session_id
     if not session_id:
         title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
@@ -237,7 +226,6 @@ async def send_chat_message_stream(
         ai_msg = ChatMessage(session_id=session_id, role="ai", content=full)
         db.add(ai_msg); db.commit()
 
-        # Store AI response in memory
         try:
             memory_store.add_message(current_user.id, session_id, "ai", full)
         except: pass
@@ -258,16 +246,39 @@ async def analyze_sentiment(
     return {"result": res, "html": a.render_sentiment_html(res, message)}
 
 # ── Model endpoints ───────────────────────────────────
+
+
 @router.get("/chat/models")
-async def get_available_models():
-    return {
-        "models": [
-            {"id": "llama3", "name": "Llama 3", "icon": "🦙"},
-            {"id": "deepseek-r1:7b", "name": "DeepSeek R1", "icon": "🧠"},
-            {"id": "mistral:7b", "name": "Mistral 7B", "icon": "⚡"}
-        ],
-        "current": chat_agent.model
-    }
+async def get_available_models(current_user: User = Depends(get_current_user)):
+    models = [
+        {"id": "llama3", "name": "Llama 3", "icon": "🦙"},
+        {"id": "deepseek-r1:7b", "name": "DeepSeek R1", "icon": "🧠"},
+        {"id": "mistral:7b", "name": "Mistral 7B", "icon": "⚡"}
+    ]
+    try:
+        result = subprocess.run(
+            ["ollama", "list", "--format", "json"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            ollama_models = json.loads(result.stdout)
+            for m in ollama_models:
+                name = m.get("name", "")
+                if not name.startswith("aegis-sre-"):
+                    continue
+                parts = name.split("-")
+                if len(parts) >= 4:
+                    scope = parts[3]
+                    if scope == "all" and current_user.is_admin:
+                        models.append({"id": name, "name": f"🎯 {name} (Global)", "icon": "🎯"})
+                    elif scope.startswith("user_") and scope == f"user_{current_user.id}":
+                        models.append({"id": name, "name": f"🎯 My Custom Model", "icon": "🎯"})
+    except Exception:
+        pass
+    return {"models": models, "current": chat_agent.model}
+
+        
+
 
 @router.post("/chat/model/switch")
 async def switch_model(
@@ -415,6 +426,5 @@ async def rename_chat_session(
 # ── Clear long‑term memory ────────────────────────────
 @router.delete("/chat/memory")
 async def clear_memory(current_user: User = Depends(get_current_user)):
-    """Clear user's long-term chat memory."""
     memory_store.clear_user_memory(current_user.id)
     return {"status": "success", "message": "Memory cleared"}

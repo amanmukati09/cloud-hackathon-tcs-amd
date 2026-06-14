@@ -246,6 +246,10 @@ footer { display: none !important; }
 .kb-results-scroll > div { padding-right: 4px; }
 """
 
+# At the bottom of your custom_css string, add:
+from styles.bulk_analysis import BULK_ANALYSIS_CSS
+custom_css += BULK_ANALYSIS_CSS
+
 saas_theme = gr.themes.Soft(
     primary_hue="blue",
     neutral_hue="slate",

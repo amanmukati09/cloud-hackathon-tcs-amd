@@ -36,19 +36,28 @@ from community import (
     load_posts, create_post, delete_post, like_post,
     load_comments_for_post, add_comment_to_post, delete_comment, like_comment
 )
+from pages.bulk_analysis import (
+    BulkAnalysisPage, check_gpu_status, handle_file_upload,
+    analyze_logs, generate_pdf, clear_all
+)
+from styles.bulk_analysis import BULK_ANALYSIS_CSS
+
+from pages.model_training import (
+    build_training_tab, check_gpu_for_training,
+    start_training, refresh_training_status, reset_training_status,
+    update_training_ui, chat_with_finetuned, get_model_chat_visible
+)
 
 
-# PWA Head HTML
+# PWA Head HTML (unchanged)
 pwa_head = """
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AegisAI">
 <meta name="theme-color" content="#0f172a">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<link rel="manifest" href="data:application/json;base64,ewogICAgIm5hbWUiOiAiQWVnaXNBSSAtIFNSRSBQbGF0Zm9ybSIsCiAgICAic2hvcnRfbmFtZSI6ICJBZWdpc0FJIiwKICAgICJkZXNjcmlwdGlvbiI6ICJBSS1Qb3dlcmVkIEluY2lkZW50IE1hbmFnZW1lbnQgUGxhdGZvcm0iLAogICAgInN0YXJ0X3VybCI6ICIvIiwKICAgICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICAgImJhY2tncm91bmRfY29sb3IiOiAiIzBmMTcyYSIsCiAgICAidGhlbWVfY29sb3IiOiAiIzM4YmRmOCIsCiAgICAiaWNvbnMiOiBbCiAgICAgICAgewogICAgICAgICAgICAic3JjIjogImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXZNUzloWkdkc2VYTXZabkFpSUhodGJHNXpQU0phWldOdmJTSWdkRzhnYzJoaGJtNWxiRDBpYVhOdmJpSWdaVzU0UFNJalAzc3ZMMjV6SWlCbWFXeHNQU0owY25WemRDMWphR0Z1YjJVaVB6NEtQR1JwYldVZ2JHOWpZV3hQYm1GMGFXOXVQVHd2WkdsdFpUNDhMM04wYVhScFpEND0iLAogICAgICAgICAgICAic2l6ZXMiOiAiMTkyeDE5MiIsCiAgICAgICAgICAgICJ0eXBlIjogImltYWdlL3N2Zyt4bWwiCiAgICAgICAgfQogICAgXQp9">
+<link rel="manifest" href="data:application/json;base64,...">
 """
-
-
 
 def dismiss_download():
     return gr.update(visible=False), gr.update(value=None)
@@ -105,15 +114,11 @@ def extract_task_id(status_text):
     return int(match.group(1)) if match else None
 
 def handle_file_change(files, token):
-    """Handle file upload with auto-clear on removal."""
-    # When file is removed, use gr.update to properly clear the Markdown component
     if files is None or files == "" or files == [] or (isinstance(files, list) and len(files) == 0):
         return gr.update(value=""), gr.update(value="")
-    
     try:
         if isinstance(files, str):
             files = [files]
-        
         valid_files = []
         invalid_names = []
         for f in files:
@@ -125,34 +130,29 @@ def handle_file_change(files, token):
             else:
                 short_name = fname.split('/')[-1] if '/' in fname else fname
                 invalid_names.append(short_name)
-        
         if not valid_files:
             if invalid_names:
                 return gr.update(value=""), gr.update(value=f"❌ Not log files: {', '.join(invalid_names[:2])}")
             return gr.update(value=""), gr.update(value="❌ Please select .log, .txt, or .out files")
-        
         return upload_log_files(valid_files, token)
-        
     except Exception as e:
         return gr.update(value=""), gr.update(value=f"❌ Error: {str(e)[:80]}")
 
-
-        
-
 def handle_image_change(image, token):
-    """Handle image upload with auto-clear on removal."""
     if image is None:
         return gr.update(value=""), gr.update(value="*Upload an image and click 'Analyze Image' to see results*")
     return gr.update(), gr.update()
 
 # --- UI LAYOUT ---
 with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
-    session_token, current_chat_id = gr.State(""), gr.State(None)
+    session_token = gr.State("")
+    current_chat_id = gr.State(None)
     selected_post_id = gr.State(None)
     selected_comment_id = gr.State(None)
     selected_workspace_id = gr.State(None)
     selected_api_key_id = gr.State(None)
     async_task_id = gr.State(None)
+    is_admin_state = gr.State(False)    # Tracks if current user is admin
 
     # --- AUTH VIEW ---
     with gr.Column(visible=True) as auth_view:
@@ -180,7 +180,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                 notification_count = gr.Textbox(value="0", visible=False)
                 logout_btn = gr.Button("Logout", variant="stop", elem_classes="logout-btn")
 
-        # ADMIN DASHBOARD
+        # ADMIN DASHBOARD (unchanged)
         with gr.Column(visible=False) as admin_dashboard_view:
             gr.Markdown("## Admin Dashboard")
             with gr.Tabs():
@@ -354,7 +354,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             gr.Markdown("### Code Fixes", scale=4)
                             dismiss_code_fix_btn = gr.Button("Close", variant="stop", size="sm", scale=1)
                         code_fix_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Click 'Code Fix' to generate</p>")
-
+               
             # IMAGE ANALYSIS TAB
             with gr.Tab("📸 Image Analysis"):
                 with gr.Row(equal_height=True):
@@ -383,10 +383,15 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                 with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
                         gr.Markdown("### AI Model")
-                        model_selector = gr.Dropdown(
-                            choices=["llama3", "deepseek-r1:7b", "mistral:7b"],
-                            value="llama3", interactive=True, label="Select Model"
-                        )
+
+                        with gr.Row():
+                            
+                            model_selector = gr.Dropdown(
+                                choices=["llama3", "deepseek-r1:7b", "mistral:7b"],
+                                value="llama3", interactive=True, label="Select Model",
+                                scale=4
+                            )
+                                                    
                         gr.Markdown("---")
                         gr.Markdown("### Chat Sessions")
                         chat_session_dropdown = gr.Dropdown(
@@ -537,7 +542,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         create_api_key_btn = gr.Button("Generate", variant="primary")
                         api_key_output = gr.Markdown("")
 
-                        # GAMIFICATION
+            # GAMIFICATION
             with gr.Tab("🏆 Gamification"):
                 with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
@@ -577,6 +582,121 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         refresh_notif_btn = gr.Button("Refresh", variant="secondary", scale=1)
                     notifications_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
 
+            # ========== BULK LOG ANALYSIS TAB ==========
+            with gr.Tab("📂 Bulk Analysis", id="tab_bulk"):
+                bulk_page = BulkAnalysisPage()
+                bulk = bulk_page.build()
+                bulk["file_upload"].change(
+                    fn=handle_file_upload,
+                    inputs=[bulk["file_upload"], session_token],
+                    outputs=[
+                        bulk["file_info"],
+                        bulk["stat_lines"],
+                        bulk["stat_anomalies"],
+                        bulk["stat_incidents"],
+                        bulk["stat_risk"],
+                        bulk["download_row"]
+                    ]
+                )
+                bulk["analyze_btn"].click(
+                    fn=analyze_logs,
+                    inputs=[bulk["file_upload"], session_token],
+                    outputs=[
+                        bulk["stat_lines"],
+                        bulk["stat_anomalies"],
+                        bulk["stat_incidents"],
+                        bulk["stat_risk"],
+                        bulk["progress"],
+                        bulk["step_progress"],
+                        bulk["summary_output"],
+                        bulk["anomalies_output"],
+                        bulk["incidents_output"],
+                        bulk["remediation_output"],
+                        bulk["download_row"],
+                        bulk["download_file"],
+                    ]
+                )
+                bulk["pdf_btn"].click(
+                    fn=generate_pdf,
+                    inputs=[bulk["file_upload"], session_token],
+                    outputs=[bulk["download_row"], bulk["download_file"]]
+                )
+                bulk["clear_btn"].click(
+                    fn=clear_all,
+                    outputs=[
+                        bulk["file_upload"],
+                        bulk["file_info"],
+                        bulk["stat_lines"],
+                        bulk["stat_anomalies"],
+                        bulk["stat_incidents"],
+                        bulk["stat_risk"],
+                        bulk["progress"],
+                        bulk["step_progress"],
+                        bulk["summary_output"],
+                        bulk["anomalies_output"],
+                        bulk["incidents_output"],
+                        bulk["remediation_output"],
+                        bulk["download_row"],
+                        bulk["download_file"],
+                    ]
+                )
+            
+            # ========== MODEL TRAINING TAB ==========
+            with gr.Tab("🧠 Train Model", id="tab_train"):
+                train = build_training_tab(session_token, is_admin_state)
+                
+                train["start_btn"].click(
+                    fn=start_training,
+                    inputs=[train["base_model"], train["num_epochs"], train["use_all"], session_token],
+                    outputs=[train["status_msg"], train["progress_bar"], train["loss_chart"], train["log_output"]]
+                )
+                
+                train["refresh_btn"].click(
+                    fn=refresh_training_status,
+                    inputs=[session_token],
+                    outputs=[
+                        train["status_msg"],
+                        train["progress_bar"],
+                        train["loss_chart"],
+                        train["log_output"],
+                        train["chat_row"],
+                        train["chat_header"],
+                        train["finetuned_model_name"],
+                    ]
+                )
+                
+                train["reset_btn"].click(
+                    fn=reset_training_status,
+                    inputs=[session_token],
+                    outputs=[
+                        train["status_msg"],
+                        train["progress_bar"],
+                        train["loss_chart"],
+                        train["log_output"],
+                        train["chat_row"],
+                        train["chat_header"],
+                        train["finetuned_model_name"],
+                    ]
+                )
+                
+                # Mini chat wiring
+                train["finetuned_send"].click(
+                    fn=chat_with_finetuned,
+                    inputs=[train["finetuned_input"], train["finetuned_chatbot"], train["finetuned_model_name"], session_token],
+                    outputs=[train["finetuned_chatbot"], train["finetuned_input"]]
+                )
+                
+                train["finetuned_input"].submit(
+                    fn=chat_with_finetuned,
+                    inputs=[train["finetuned_input"], train["finetuned_chatbot"], train["finetuned_model_name"], session_token],
+                    outputs=[train["finetuned_chatbot"], train["finetuned_input"]]
+                )
+
+                
+
+
+
+
         # FOOTER
         with gr.Row(elem_classes="footer-container"):
             with gr.Column(scale=1):
@@ -588,13 +708,9 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     log_show_pass.change(fn=None, inputs=[log_show_pass], js="(s)=>{const el=document.querySelector('#log_pass_input input');if(el)el.type=s?'text':'password';return[];}")
     reg_show_pass.change(fn=None, inputs=[reg_show_pass], js="(s)=>{const el=document.querySelector('#reg_pass_input input');if(el)el.type=s?'text':'password';return[];}")
 
-    # 🆕 Log upload - auto-clear on removal
     log_upload.change(fn=handle_file_change, inputs=[log_upload, session_token], outputs=[logs_input, upload_status])
-
-    # 🆕 Image upload - auto-clear on removal
     image_upload.change(fn=handle_image_change, inputs=[image_upload, session_token], outputs=[image_result, image_analysis_output])
 
-    # Image Analysis wiring
     analyze_image_btn.click(fn=analyze_image, inputs=[image_upload, session_token], outputs=[image_result, image_analysis_output])
     clear_image_btn.click(
         fn=lambda: (
@@ -606,7 +722,6 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     )
 
     from incidents import fetch_incident_timeline
-
     def dismiss_timeline():
         return gr.update(visible=False), "<p style='color:#94a3b8;text-align:center;'>Select an incident to view timeline</p>"
     
@@ -618,7 +733,6 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
         fn=lambda: gr.update(visible=True),
         outputs=[timeline_row]
     )
-    
     dismiss_timeline_btn.click(
         fn=dismiss_timeline,
         outputs=[timeline_row, timeline_output]
@@ -638,6 +752,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
         queue=False
     )
 
+    
     from admin import fetch_gamification_stats, fetch_leaderboard
 
     refresh_gamification_btn.click(
@@ -645,7 +760,6 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
         inputs=[session_token],
         outputs=[gamification_points, gamification_badges, gr.State()]
     )
-    
     refresh_leaderboard_btn.click(
         fn=fetch_leaderboard,
         inputs=[session_token],
@@ -663,7 +777,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
 
     login_btn.click(
         fn=api_login, inputs=[log_email,log_pass],
-        outputs=[session_token,auth_view,app_view,welcome_text,role_text,admin_dashboard_view,notification_count,notifications_table]
+        outputs=[session_token,auth_view,app_view,welcome_text,role_text,admin_dashboard_view,notification_count,notifications_table,is_admin_state]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
     ).then(fn=load_admin_data, inputs=[session_token, gr.State(30), gr.State("ALL")],
            outputs=[metric_users,metric_incidents,metric_chats,metric_resolved,gr.State(),gr.State(),admin_users_table]
@@ -676,18 +790,24 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     ).then(fn=load_admin_tickets, inputs=[session_token], outputs=[admin_tickets_table]
     ).then(fn=get_chat_sessions, inputs=[session_token], outputs=[chat_session_dropdown]
     ).then(fn=load_posts, inputs=[session_token], outputs=[community_posts_table]
-    ).then(fn=get_available_models, outputs=[model_selector]
+    ).then(fn=get_available_models, inputs=[session_token], outputs=[model_selector]
     ).then(fn=fetch_audit_logs, inputs=[session_token], outputs=[audit_logs_table]
     ).then(fn=fetch_workspaces, inputs=[session_token], outputs=[workspaces_table, gr.State()]
     ).then(fn=fetch_api_keys, inputs=[session_token], outputs=[api_keys_table]
     ).then(fn=fetch_gamification_stats, inputs=[session_token], outputs=[gamification_points, gamification_badges, gr.State()]
-    ).then(fn=fetch_leaderboard, inputs=[session_token], outputs=[leaderboard_table])
+    ).then(fn=fetch_leaderboard, inputs=[session_token], outputs=[leaderboard_table]
+    ).then(fn=check_gpu_status, inputs=[session_token], outputs=[bulk["gpu_badge"]]
+    ).then(fn=check_gpu_for_training, inputs=[session_token], outputs=[train["gpu_badge"]]
+    ).then(fn=update_training_ui, inputs=[is_admin_state], outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
+
 
     register_btn.click(
         fn=api_register, inputs=[reg_email,reg_pass,reg_name],
-        outputs=[session_token,auth_view,app_view,welcome_text,role_text,admin_dashboard_view,notification_count,notifications_table]
+        outputs=[session_token,auth_view,app_view,welcome_text,role_text,admin_dashboard_view,notification_count,notifications_table,is_admin_state]
     ).then(fn=fetch_history, inputs=[session_token], outputs=[history_table]
-    ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table])
+    ).then(fn=fetch_my_tickets, inputs=[session_token], outputs=[my_tickets_table]
+    ).then(fn=update_training_ui, inputs=[is_admin_state], outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
+
 
     logout_btn.click(fn=logout, outputs=[
         session_token,auth_view,app_view,welcome_text,role_text,chat_session_dropdown,admin_dashboard_view,
@@ -699,8 +819,9 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
         similar_incidents_table,similar_incidents_row,similar_incidents_status,
         history_table,resolve_incident_row,resolve_incident_id,resolve_notes_input,incident_details_md,
         download_row,notification_count,notifications_table,
-        community_posts_table,community_comments_table,selected_post_id,selected_comment_id
-    ], queue=False)
+        community_posts_table,community_comments_table,selected_post_id,selected_comment_id,
+        tabs_manager, is_admin_state
+    ], queue=False).then(fn=lambda: update_training_ui(False), outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input,session_token], outputs=[anomaly_out,rc_out,remed_out,history_table])
     auto_remediate_btn.click(fn=auto_remediate, inputs=[logs_input,gr.State(False),session_token], outputs=[anomaly_out,rc_out,remed_out,workflow_output,history_table])
