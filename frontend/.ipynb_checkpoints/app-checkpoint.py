@@ -30,7 +30,7 @@ from admin import (
     fetch_workspace_members, add_workspace_member,
     fetch_api_keys, create_api_key, revoke_api_key,
     generate_knowledge_base, search_knowledge_base,
-    fetch_recent_activity
+    fetch_recent_activity, fetch_health_score, fetch_benchmark
 )
 from community import (
     load_posts, create_post, delete_post, like_post,
@@ -55,9 +55,9 @@ from pages.dependency_graph import (
 from pages.smart_analytics import build_analytics_tab, ask_question, ask_preset
 
 
-from pages.live_monitor import (
-    build_live_monitor_tab, refresh_dashboard, send_chat, download_incident_pdf
-)
+from pages.live_monitor import build_live_monitor_tab, refresh_dashboard, send_chat
+from pages.demo_tour import start_demo, skip_demo, get_demo_html, DEMO_STEPS
+
 
 
 # PWA Head HTML (unchanged)
@@ -190,6 +190,8 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
             with gr.Column(scale=0, min_width=180, elem_classes="nav-right"):
                 notification_count = gr.Textbox(value="0", visible=False)
                 logout_btn = gr.Button("Logout", variant="stop", elem_classes="logout-btn")
+                demo_btn = gr.Button("🎬 Overview", variant="secondary", size="sm", elem_classes="demo-btn")  
+
 
         # ADMIN DASHBOARD (unchanged)
         with gr.Column(visible=False) as admin_dashboard_view:
@@ -231,11 +233,13 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             clusters_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Loading clusters...</p>")
                     with gr.Row():
                         with gr.Column(elem_classes="glass-card health-card"):
-                            gr.Markdown("### System Health")
-                            gr.Markdown("""<div style="padding:4px;text-align:center;">
-                                <h2 style="color:#10b981;font-size:1.2rem;margin:2px 0;">All Systems Operational</h2>
-                                <p style="color:#94a3b8;margin:1px 0;font-size:0.7rem;">API: Online | AI: Connected | DB: SQLite | ChromaDB: Active</p>
-                            </div>""")
+                            gr.Markdown("### System Health Score")
+                            health_score_output = gr.HTML(value="<div style='text-align:center;color:#64748b;'>Loading...</div>")
+                        with gr.Column(elem_classes="glass-card"):
+                            gr.Markdown("### 📊 AI Performance")
+                            benchmark_output = gr.HTML(value="<div style='text-align:center;color:#64748b;'>Loading...</div>")
+                                                    
+
 
                 with gr.Tab("User Management"):
                     with gr.Row(equal_height=True):
@@ -754,45 +758,39 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
 
                 def start_monitor(source, token):
                     if not token:
-                        gr.Warning("Please login")
-                        return '<span class="badge inactive">● Stopped</span>'
+                        gr.Warning("Please login first")
+                        return refresh_dashboard(token, source)
                     try:
                         res = requests.post(f"{BACKEND_URL}/live/start?source={source}", headers={"Authorization": f"Bearer {token}"}, timeout=5)
                         if res.status_code == 200:
                             gr.Info("✅ Monitor started")
-                            return '<span class="badge active">● Live</span>'
-                    except Exception as e:
-                        gr.Warning(str(e))
-                    return '<span class="badge inactive">● Stopped</span>'
-
-                def stop_monitor(source):
-                    try:
-                        res = requests.post(
-                            f"{BACKEND_URL}/live/stop?source={source}",
-                            headers={"Authorization": f"Bearer {session_token.value}"},
-                            timeout=10
-                        )
-                        gr.Info("⏹️ Stopped")
                     except:
                         pass
-                    return '<span class="badge inactive">● Stopped</span>'
+                    return refresh_dashboard(token, source)
 
-                live["stop_btn"].click(fn=stop_monitor, inputs=[live["source_selector"]], outputs=[live["status_badge"]])
+                def stop_monitor(source, token):
+                    try:
+                        res = requests.post(f"{BACKEND_URL}/live/stop?source={source}", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+                        if res.status_code == 200:
+                            report = res.json().get("report", {})
+                            gr.Info(f"⏹️ Stopped | {report.get('lines_processed',0)} lines | {report.get('anomalies_found',0)} anomalies")
+                    except:
+                        pass
+                    return refresh_dashboard(token, source)
 
-
-
-                live["start_btn"].click(fn=start_monitor, inputs=[live["source_selector"], session_token], outputs=[live["status_badge"]])
-                live["stop_btn"].click(fn=stop_monitor, inputs=[live["source_selector"], session_token], outputs=[live["status_badge"]])
+                live["start_btn"].click(fn=start_monitor, inputs=[live["source_selector"], session_token], outputs=[live["source_selector"], live["log_stream"], live["incidents_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
+                live["stop_btn"].click(fn=stop_monitor, inputs=[live["source_selector"], session_token], outputs=[live["source_selector"], live["log_stream"], live["incidents_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
+                live["refresh_btn"].click(fn=refresh_dashboard, inputs=[session_token, live["source_selector"]], outputs=[live["source_selector"], live["log_stream"], live["incidents_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
                 live["chat_send"].click(fn=send_chat, inputs=[live["chat_input"], live["chatbot"], session_token, live["source_selector"]], outputs=[live["chatbot"], live["chat_input"]])
                 live["chat_input"].submit(fn=send_chat, inputs=[live["chat_input"], live["chatbot"], session_token, live["source_selector"]], outputs=[live["chatbot"], live["chat_input"]])
-                live["pdf_btn"].click(fn=download_incident_pdf, inputs=[session_token, live["incident_id_input"]], outputs=[live["pdf_file"], live["pdf_file"]])
-
-                timer = gr.Timer(2)
-                timer.tick(fn=refresh_dashboard, inputs=[session_token, live["source_selector"]], outputs=[live["log_stream"], live["incidents_html"], live["pipeline_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
 
                 
+                
 
-
+        # ========== DEMO OVERLAY ==========
+        with gr.Column(visible=False, elem_classes="demo-overlay") as demo_overlay:
+            demo_html = gr.HTML(value=get_demo_html())
+            demo_skip_btn = gr.Button("Close ✕", variant="stop", size="sm")
 
                 
 
@@ -897,7 +895,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     ).then(fn=fetch_leaderboard, inputs=[session_token], outputs=[leaderboard_table]
     ).then(fn=check_gpu_status, inputs=[session_token], outputs=[bulk["gpu_badge"]]
     ).then(fn=check_gpu_for_training, inputs=[session_token], outputs=[train["gpu_badge"]]
-    ).then(fn=update_training_ui, inputs=[is_admin_state], outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
+    ).then(fn=update_training_ui, inputs=[is_admin_state], outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]]).then(fn=fetch_health_score, inputs=[session_token], outputs=[health_score_output]).then(fn=fetch_benchmark, inputs=[session_token], outputs=[benchmark_output])
 
 
     register_btn.click(
@@ -921,6 +919,17 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
         community_posts_table,community_comments_table,selected_post_id,selected_comment_id,
         tabs_manager, is_admin_state
     ], queue=False).then(fn=lambda: update_training_ui(False), outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
+
+    # Demo Tour wiring
+    demo_btn.click(
+        fn=start_demo,
+        outputs=[demo_html, demo_overlay, demo_btn, demo_skip_btn]
+    )
+
+    demo_skip_btn.click(
+        fn=skip_demo,
+        outputs=[demo_overlay, demo_btn, demo_skip_btn]
+    )
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input,session_token], outputs=[anomaly_out,rc_out,remed_out,history_table])
     auto_remediate_btn.click(fn=auto_remediate, inputs=[logs_input,gr.State(False),session_token], outputs=[anomaly_out,rc_out,remed_out,workflow_output,history_table])

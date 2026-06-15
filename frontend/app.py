@@ -30,7 +30,7 @@ from admin import (
     fetch_workspace_members, add_workspace_member,
     fetch_api_keys, create_api_key, revoke_api_key,
     generate_knowledge_base, search_knowledge_base,
-    fetch_recent_activity
+    fetch_recent_activity, fetch_health_score, fetch_benchmark
 )
 from community import (
     load_posts, create_post, delete_post, like_post,
@@ -56,7 +56,7 @@ from pages.smart_analytics import build_analytics_tab, ask_question, ask_preset
 
 
 from pages.live_monitor import build_live_monitor_tab, refresh_dashboard, send_chat
-
+from pages.demo_tour import start_demo, skip_demo, get_demo_html, DEMO_STEPS
 
 
 
@@ -190,6 +190,8 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
             with gr.Column(scale=0, min_width=180, elem_classes="nav-right"):
                 notification_count = gr.Textbox(value="0", visible=False)
                 logout_btn = gr.Button("Logout", variant="stop", elem_classes="logout-btn")
+                demo_btn = gr.Button("🎬 Overview", variant="secondary", size="sm", elem_classes="demo-btn")  
+
 
         # ADMIN DASHBOARD (unchanged)
         with gr.Column(visible=False) as admin_dashboard_view:
@@ -231,11 +233,13 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             clusters_output = gr.HTML(value="<p style='color:#94a3b8;text-align:center;'>Loading clusters...</p>")
                     with gr.Row():
                         with gr.Column(elem_classes="glass-card health-card"):
-                            gr.Markdown("### System Health")
-                            gr.Markdown("""<div style="padding:4px;text-align:center;">
-                                <h2 style="color:#10b981;font-size:1.2rem;margin:2px 0;">All Systems Operational</h2>
-                                <p style="color:#94a3b8;margin:1px 0;font-size:0.7rem;">API: Online | AI: Connected | DB: SQLite | ChromaDB: Active</p>
-                            </div>""")
+                            gr.Markdown("### System Health Score")
+                            health_score_output = gr.HTML(value="<div style='text-align:center;color:#64748b;'>Loading...</div>")
+                        with gr.Column(elem_classes="glass-card"):
+                            gr.Markdown("### 📊 AI Performance")
+                            benchmark_output = gr.HTML(value="<div style='text-align:center;color:#64748b;'>Loading...</div>")
+                                                    
+
 
                 with gr.Tab("User Management"):
                     with gr.Row(equal_height=True):
@@ -783,6 +787,10 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                 
                 
 
+        # ========== DEMO OVERLAY ==========
+        with gr.Column(visible=False, elem_classes="demo-overlay") as demo_overlay:
+            demo_html = gr.HTML(value=get_demo_html())
+            demo_skip_btn = gr.Button("Close ✕", variant="stop", size="sm")
 
                 
 
@@ -887,7 +895,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     ).then(fn=fetch_leaderboard, inputs=[session_token], outputs=[leaderboard_table]
     ).then(fn=check_gpu_status, inputs=[session_token], outputs=[bulk["gpu_badge"]]
     ).then(fn=check_gpu_for_training, inputs=[session_token], outputs=[train["gpu_badge"]]
-    ).then(fn=update_training_ui, inputs=[is_admin_state], outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
+    ).then(fn=update_training_ui, inputs=[is_admin_state], outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]]).then(fn=fetch_health_score, inputs=[session_token], outputs=[health_score_output]).then(fn=fetch_benchmark, inputs=[session_token], outputs=[benchmark_output])
 
 
     register_btn.click(
@@ -911,6 +919,17 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
         community_posts_table,community_comments_table,selected_post_id,selected_comment_id,
         tabs_manager, is_admin_state
     ], queue=False).then(fn=lambda: update_training_ui(False), outputs=[train["base_model"], train["num_epochs"], train["use_all"], train["start_btn"], train["reset_btn"], train["admin_warning"]])
+
+    # Demo Tour wiring
+    demo_btn.click(
+        fn=start_demo,
+        outputs=[demo_html, demo_overlay, demo_btn, demo_skip_btn]
+    )
+
+    demo_skip_btn.click(
+        fn=skip_demo,
+        outputs=[demo_overlay, demo_btn, demo_skip_btn]
+    )
 
     diagnose_btn.click(fn=diagnose_logs, inputs=[logs_input,session_token], outputs=[anomaly_out,rc_out,remed_out,history_table])
     auto_remediate_btn.click(fn=auto_remediate, inputs=[logs_input,gr.State(False),session_token], outputs=[anomaly_out,rc_out,remed_out,workflow_output,history_table])

@@ -30,6 +30,15 @@ footer { display: none !important; }
     white-space: nowrap !important;
 }
 
+.demo-overlay {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    z-index: 1000 !important;
+    max-width: 400px !important;
+}
+
+
 /* ========== UPLOAD BOX ========== */
 .upload-box {
     background: rgba(0,0,0,0.15) !important;

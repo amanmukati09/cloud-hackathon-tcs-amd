@@ -717,3 +717,74 @@ def fetch_leaderboard(token):
     except:
         pass
     return pd.DataFrame()
+
+def fetch_health_score(token):
+    if not token:
+        return "<div style='text-align:center;color:#64748b;padding:20px;'>Login as admin</div>"
+    try:
+        res = requests.get(
+            f"{BACKEND_URL}/admin/health-score",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10
+        )
+        if res.status_code == 200:
+            d = res.json()
+            return f"""
+            <div style="text-align:center;padding:8px;">
+                <div style="position:relative;width:100px;height:100px;margin:0 auto;">
+                    <svg width="100" height="100" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="8"/>
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="{d['color']}" stroke-width="8"
+                            stroke-dasharray="{d['score']*3.27} 327" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+                    </svg>
+                    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
+                        <span style="font-size:1.6rem;font-weight:800;color:{d['color']};">{d['score']}</span>
+                    </div>
+                </div>
+                <p style="color:{d['color']};font-weight:700;margin:4px 0 0 0;font-size:0.85rem;">{d['icon']} {d['status']}</p>
+                <div style="font-size:0.7rem;color:#94a3b8;margin-top:6px;">
+                    <p style="margin:1px 0;">🔴 Active Critical: {d.get('critical_1h', 0)}</p>
+                    <p style="margin:1px 0;">📂 Open: {d['open_incidents']}</p>
+                    <p style="margin:1px 0;">✅ Resolved: {d['resolution_rate']}%</p>
+                </div>
+            </div>"""
+        else:
+            return f"<div style='text-align:center;color:#ef4444;'>Error {res.status_code}</div>"
+    except Exception as e:
+        return f"<div style='text-align:center;color:#ef4444;'>{str(e)[:50]}</div>"
+
+def fetch_benchmark(token):
+    if not token:
+        return "<div style='text-align:center;color:#64748b;'>Login</div>"
+    try:
+        res = requests.get(f"{BACKEND_URL}/admin/benchmark", headers={"Authorization": f"Bearer {token}"}, timeout=5)
+        if res.status_code == 200:
+            d = res.json()
+            gpu_badge = "⚡ GPU" if d.get("gpu_accelerated") else "💻 CPU"
+            return f"""
+            <div style="padding:8px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;text-align:center;">
+                        <div style="font-size:1.5rem;font-weight:800;color:#38bdf8;">{d['diagnosis_accuracy']}%</div>
+                        <div style="font-size:0.65rem;color:#94a3b8;">Diagnosis Accuracy</div>
+                    </div>
+                    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;text-align:center;">
+                        <div style="font-size:1.5rem;font-weight:800;color:#10b981;">{d['remediation_rate']}%</div>
+                        <div style="font-size:0.65rem;color:#94a3b8;">Remediation Rate</div>
+                    </div>
+                    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;text-align:center;">
+                        <div style="font-size:1.5rem;font-weight:800;color:#f59e0b;">{d['avg_resolution_hours']}h</div>
+                        <div style="font-size:0.65rem;color:#94a3b8;">Avg Resolution Time</div>
+                    </div>
+                    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;text-align:center;">
+                        <div style="font-size:1.5rem;font-weight:800;color:#8b5cf6;">{d['features_count']}+</div>
+                        <div style="font-size:0.65rem;color:#94a3b8;">AI Features</div>
+                    </div>
+                </div>
+                <div style="text-align:center;margin-top:8px;font-size:0.7rem;color:#64748b;">
+                    {d['total_incidents']} incidents · {gpu_badge} · {d['model_used']}
+                </div>
+            </div>"""
+    except:
+        pass
+    return "<div style='text-align:center;color:#ef4444;'>Failed</div>"

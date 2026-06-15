@@ -703,3 +703,23 @@ async def get_leaderboard(
     leaderboard = engine.get_leaderboard(user_scores)
     
     return {"leaderboard": leaderboard}
+
+@router.get("/admin/health-score")
+async def get_health_score(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403)
+    from agents.health_scorer import health_scorer
+    return health_scorer.calculate(db)
+
+@router.get("/admin/benchmark")
+async def get_benchmark(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403)
+    from agents.benchmark import benchmark
+    return benchmark.calculate(db)
