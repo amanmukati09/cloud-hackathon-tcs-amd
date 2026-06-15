@@ -88,36 +88,67 @@ class AlertManager:
             print(f"Teams alert failed: {e}")
             return False
     
-    # ── Email (SMTP) ──────────────────────────────────
 
-        # ── Email (SMTP) ──────────────────────────────────
-    def send_email_alert(self, subject: str, body: str, severity: str, to_emails: list = None) -> bool:
-        
+    # ── Email (SMTP) ──────────────────────────────────
+    def send_email_alert(self, subject: str, body: str, severity: str, to_emails: list = None, source: str = None) -> bool:
         if not self.smtp_config.get("username") or not self.smtp_config.get("password"):
+            print("⚠️ SMTP not configured - email not sent")
             return False
         
         recipients = to_emails or self.smtp_config.get("to_emails", [])
         if not recipients:
+            print("⚠️ No recipients configured")
             return False
         
         colors = {"CRITICAL": "#dc2626", "HIGH": "#ef4444", "MEDIUM": "#f59e0b", "LOW": "#10b981"}
         color = colors.get(severity.upper(), "#6b7280")
         
+        # Professional subject line
+        site_info = f" - {source}" if source else ""
+        email_subject = f"🚨 [{severity}] AegisAI Alert{site_info}: {subject}"
+        
         html = f"""
         <html>
-        <body style="font-family:Arial,sans-serif;padding:20px;background:#0f172a;color:#f8fafc;">
-            <div style="max-width:600px;margin:0 auto;background:#1e293b;border-radius:12px;overflow:hidden;">
-                <div style="background:{color};padding:16px 24px;">
-                    <h2 style="margin:0;color:white;">🚨 {subject}</h2>
+        <body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:0;margin:0;background:#0f172a;">
+            <div style="max-width:600px;margin:20px auto;background:#1e293b;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                <!-- Header -->
+                <div style="background:{color};padding:20px 24px;">
+                    <h2 style="margin:0;color:white;font-size:1.3rem;">🚨 {severity} Incident Detected</h2>
+                    <p style="margin:4px 0 0 0;color:rgba(255,255,255,0.8);font-size:0.85rem;">{email_subject}</p>
                 </div>
+                
+                <!-- Body -->
                 <div style="padding:20px 24px;">
-                    <p><strong>Severity:</strong> <span style="color:{color};font-weight:bold;">{severity.upper()}</span></p>
-                    <p><strong>Platform:</strong> AegisAI Incident Management</p>
-                    <p><strong>Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
-                    <hr style="border-color:rgba(255,255,255,0.1);">
-                    <pre style="background:#0f172a;padding:14px;border-radius:8px;font-family:monospace;white-space:pre-wrap;color:#e2e8f0;">{body}</pre>
-                    <hr style="border-color:rgba(255,255,255,0.1);">
-                    <p style="color:#64748b;font-size:0.85em;">This is an automated alert from AegisAI.</p>
+                    <table style="width:100%;border-collapse:collapse;">
+                        <tr>
+                            <td style="padding:8px 0;color:#94a3b8;font-size:0.85rem;width:120px;">Severity</td>
+                            <td style="padding:8px 0;"><span style="background:{color}20;color:{color};padding:3px 10px;border-radius:12px;font-weight:700;font-size:0.8rem;">{severity.upper()}</span></td>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px 0;color:#94a3b8;font-size:0.85rem;">Time</td>
+                            <td style="padding:8px 0;color:#e2e8f0;font-size:0.85rem;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px 0;color:#94a3b8;font-size:0.85rem;">Platform</td>
+                            <td style="padding:8px 0;color:#38bdf8;font-size:0.85rem;">AegisAI SRE Platform</td>
+                        </tr>
+                    </table>
+                    
+                    <hr style="border-color:rgba(255,255,255,0.06);margin:16px 0;">
+                    
+                    <div style="background:#0f172a;padding:16px;border-radius:10px;border:1px solid rgba(255,255,255,0.05);">
+                        <pre style="margin:0;color:#e2e8f0;font-family:'SF Mono',monospace;font-size:0.8rem;white-space:pre-wrap;line-height:1.5;">{body}</pre>
+                    </div>
+                    
+                    <hr style="border-color:rgba(255,255,255,0.06);margin:16px 0;">
+                    
+                    <div style="text-align:center;">
+                        <a href="http://localhost:7860" style="display:inline-block;padding:10px 24px;background:{color};color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:0.85rem;">🔍 View in Live Monitor</a>
+                    </div>
+                    
+                    <p style="color:#64748b;font-size:0.7rem;text-align:center;margin-top:16px;">
+                        This is an automated alert from <b>AegisAI</b>. Configure notification settings in Admin Dashboard.
+                    </p>
                 </div>
             </div>
         </body>
@@ -125,34 +156,22 @@ class AlertManager:
         """
         
         try:
-            import socket
-            # Resolve hostname explicitly
-            host = self.smtp_config["host"]
-            port = self.smtp_config["port"]
-            
-            # Try to resolve the hostname
-            try:
-                socket.getaddrinfo(host, port)
-            except socket.gaierror:
-                # If DNS fails, try common Gmail IP
-                host = "64.233.184.108"  # smtp.gmail.com IP
-            
             msg = MIMEMultipart('alternative')
-            msg['Subject'] = f"[{severity.upper()}] {subject}"
+            msg['Subject'] = email_subject
             msg['From'] = self.smtp_config["from_email"]
             msg['To'] = ", ".join(recipients)
             msg.attach(MIMEText(html, 'html'))
             
-            server = smtplib.SMTP(host, port, timeout=10)
+            server = smtplib.SMTP(self.smtp_config["host"], self.smtp_config["port"], timeout=10)
             server.starttls()
             server.login(self.smtp_config["username"], self.smtp_config["password"])
             server.send_message(msg)
             server.quit()
+            print(f"✅ Email sent to {len(recipients)} recipients")
             return True
         except Exception as e:
-            print(f"Email alert failed: {e}")
+            print(f"❌ Email failed: {e}")
             return False
-
     
     # ── PagerDuty ─────────────────────────────────────
     def send_pagerduty_alert(self, title: str, message: str, severity: str, incident_id: str = None) -> bool:
@@ -232,48 +251,27 @@ class AlertManager:
             return False
     
     # ── Send to all configured channels ───────────────
-    def send_incident_alert(self, incident_data: dict) -> dict:
-        """Send alert through ALL configured channels."""
+    def send_incident_alert(self, incident_data: dict, source: str = None) -> dict:
         results = {}
         
-        title = f"Incident #{incident_data.get('id', 'NEW')}: {incident_data.get('anomaly_type', 'Unknown')}"
+        title = f"{incident_data.get('anomaly_type', 'Unknown')} - {incident_data.get('affected_component', 'Unknown')}"
         message = f"""
-Incident Details:
-• Type: {incident_data.get('anomaly_type', 'Unknown')}
-• Severity: {incident_data.get('severity', 'UNKNOWN')}
-• Component: {incident_data.get('affected_component', 'Unknown')}
-• Description: {incident_data.get('description', 'No description')}
-• Root Cause: {incident_data.get('root_cause', 'Pending analysis')}
-• Remediation: {incident_data.get('remediation', 'Pending')}
-• Time: {incident_data.get('timestamp', 'Now')}
+    Incident Details:
+    • Type: {incident_data.get('anomaly_type', 'Unknown')}
+    • Severity: {incident_data.get('severity', 'UNKNOWN')}
+    • Component: {incident_data.get('affected_component', 'Unknown')}
+    • Description: {incident_data.get('description', 'No description')}
+    • Root Cause: {incident_data.get('root_cause', 'Pending')}
+    • Remediation: {incident_data.get('remediation', 'Check dashboard')}
+    • Time: {incident_data.get('timestamp', 'Now')}
         """.strip()
         
         severity = incident_data.get('severity', 'MEDIUM')
-        incident_id = str(incident_data.get('id', 'NEW'))
         
-        print(f"\n🔔 Sending alerts for: {title} (Severity: {severity})")
-        
-        # Slack
+        # Email with source info
+        results["email"] = self.send_email_alert(title, message, severity, source=source)
         results["slack"] = self.send_slack_alert(title, message, severity)
-        print(f"  Slack: {'✅' if results['slack'] else '❌ (not configured or failed)'}")
-        
-        # Teams
         results["teams"] = self.send_teams_alert(title, message, severity)
-        print(f"  Teams: {'✅' if results['teams'] else '❌ (not configured or failed)'}")
         
-        # Email
-        results["email"] = self.send_email_alert(title, message, severity)
-        print(f"  Email: {'✅' if results['email'] else '❌ (not configured or failed)'}")
-        
-        # PagerDuty (only for CRITICAL/HIGH)
-        if severity.upper() in ["CRITICAL", "HIGH"]:
-            results["pagerduty"] = self.send_pagerduty_alert(title, message, severity, incident_id)
-            print(f"  PagerDuty: {'✅' if results.get('pagerduty') else '❌ (not configured or failed)'}")
-        
-        # Opsgenie (only for CRITICAL/HIGH)
-        if severity.upper() in ["CRITICAL", "HIGH"]:
-            results["opsgenie"] = self.send_opsgenie_alert(title, message, severity, incident_id)
-            print(f"  Opsgenie: {'✅' if results.get('opsgenie') else '❌ (not configured or failed)'}")
-        
-        print(f"  Alert results: {results}")
+        print(f"📧 Alert results: {results}")
         return results

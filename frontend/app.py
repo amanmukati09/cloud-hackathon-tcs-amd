@@ -48,6 +48,17 @@ from pages.model_training import (
     update_training_ui, chat_with_finetuned, get_model_chat_visible
 )
 
+from pages.dependency_graph import (
+    build_dependency_tab, fetch_dependency_graph, handle_node_select
+)
+
+from pages.smart_analytics import build_analytics_tab, ask_question, ask_preset
+
+
+from pages.live_monitor import build_live_monitor_tab, refresh_dashboard, send_chat
+
+
+
 
 # PWA Head HTML (unchanged)
 pwa_head = """
@@ -692,10 +703,88 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                     outputs=[train["finetuned_chatbot"], train["finetuned_input"]]
                 )
 
+            # ========== DEPENDENCY GRAPH TAB ==========
+            with gr.Tab("🗺️ Dependency Map", id="tab_dep"):
+                dep = build_dependency_tab(session_token)
+                
+                dep["refresh_btn"].click(
+                    fn=fetch_dependency_graph,
+                    inputs=[session_token],
+                    outputs=[
+                        dep["graph_output"],
+                        dep["node_selector"],
+                        dep["blast_output"],
+                        dep["critical_output"],
+                        dep["graph_status"]
+                    ]
+                )
+                
+                dep["node_selector"].change(
+                    fn=handle_node_select,
+                    inputs=[dep["node_selector"], session_token],
+                    outputs=[dep["blast_output"]]
+                )          
+
+            # ========== SMART ANALYTICS TAB ==========
+            with gr.Tab("📊 Smart Analytics", id="tab_analytics"):
+                analytics = build_analytics_tab(session_token)
+                
+                analytics["ask_btn"].click(
+                    fn=ask_question,
+                    inputs=[analytics["query_input"], session_token],
+                    outputs=[analytics["results_output"], analytics["history_output"]]
+                )
+                
+                analytics["query_input"].submit(
+                    fn=ask_question,
+                    inputs=[analytics["query_input"], session_token],
+                    outputs=[analytics["results_output"], analytics["history_output"]]
+                )
+                
+                # Wire preset buttons
+                for btn in analytics["preset_btns"]:
+                    btn.click(
+                        fn=ask_preset,
+                        inputs=[btn, session_token],
+                        outputs=[analytics["results_output"], analytics["history_output"]])
+
+            # ========== LIVE MONITOR TAB ==========
+            with gr.Tab("🛰️ Live Monitor", id="tab_live"):
+                live = build_live_monitor_tab(session_token)
+
+                def start_monitor(source, token):
+                    if not token:
+                        gr.Warning("Please login first")
+                        return refresh_dashboard(token, source)
+                    try:
+                        res = requests.post(f"{BACKEND_URL}/live/start?source={source}", headers={"Authorization": f"Bearer {token}"}, timeout=5)
+                        if res.status_code == 200:
+                            gr.Info("✅ Monitor started")
+                    except:
+                        pass
+                    return refresh_dashboard(token, source)
+
+                def stop_monitor(source, token):
+                    try:
+                        res = requests.post(f"{BACKEND_URL}/live/stop?source={source}", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+                        if res.status_code == 200:
+                            report = res.json().get("report", {})
+                            gr.Info(f"⏹️ Stopped | {report.get('lines_processed',0)} lines | {report.get('anomalies_found',0)} anomalies")
+                    except:
+                        pass
+                    return refresh_dashboard(token, source)
+
+                live["start_btn"].click(fn=start_monitor, inputs=[live["source_selector"], session_token], outputs=[live["source_selector"], live["log_stream"], live["incidents_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
+                live["stop_btn"].click(fn=stop_monitor, inputs=[live["source_selector"], session_token], outputs=[live["source_selector"], live["log_stream"], live["incidents_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
+                live["refresh_btn"].click(fn=refresh_dashboard, inputs=[session_token, live["source_selector"]], outputs=[live["source_selector"], live["log_stream"], live["incidents_html"], live["metric_lines"], live["metric_anomalies"], live["metric_last"], live["status_badge"]])
+                live["chat_send"].click(fn=send_chat, inputs=[live["chat_input"], live["chatbot"], session_token, live["source_selector"]], outputs=[live["chatbot"], live["chat_input"]])
+                live["chat_input"].submit(fn=send_chat, inputs=[live["chat_input"], live["chatbot"], session_token, live["source_selector"]], outputs=[live["chatbot"], live["chat_input"]])
+
+                
                 
 
 
-
+                
 
         # FOOTER
         with gr.Row(elem_classes="footer-container"):

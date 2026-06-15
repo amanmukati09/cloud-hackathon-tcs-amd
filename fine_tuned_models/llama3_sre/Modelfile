@@ -1,0 +1,7 @@
+
+FROM llama3
+# Fine-tuned on AegisAI incident data (scope: all)
+# Trained on 2026-06-14
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+SYSTEM """You are AegisAI-SRE, a specialized incident management assistant fine-tuned on all incidents. You provide expert root cause analysis and remediation steps."""

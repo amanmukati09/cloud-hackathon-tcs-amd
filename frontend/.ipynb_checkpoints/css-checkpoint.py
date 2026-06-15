@@ -248,7 +248,11 @@ footer { display: none !important; }
 
 # At the bottom of your custom_css string, add:
 from styles.bulk_analysis import BULK_ANALYSIS_CSS
+from styles.live_monitor import LIVE_MONITOR_CSS
+
+
 custom_css += BULK_ANALYSIS_CSS
+custom_css += LIVE_MONITOR_CSS
 
 saas_theme = gr.themes.Soft(
     primary_hue="blue",
