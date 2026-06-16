@@ -272,6 +272,7 @@ cloud-hackathon-tcs-amd/
 ```bash
 git clone https://github.com/amanmukati09/cloud-hackathon-tcs-amd.git
 cd cloud-hackathon-tcs-amd
+```
 
 python3 -m venv venv
 source venv/bin/activate
