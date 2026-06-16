@@ -128,106 +128,112 @@ It combines a **multi‑agent LLM system**, **retrieval‑augmented generation (
 
 ## 🗂️ Project Structure
 
+<details>
+<summary>📂 Click to expand the full repository map</summary>
+
+```text
 cloud-hackathon-tcs-amd/
 ├── backend/
-│ ├── main.py # FastAPI entry point
-│ ├── auth.py # JWT + bcrypt authentication
-│ ├── models.py # SQLAlchemy models (15 tables)
-│ ├── guardrails.py # PII masking, injection detection
-│ ├── gpu_utils.py # AMD MI300X auto‑detection
-│ ├── cache.py # Redis caching utilities
-│ ├── chroma_store.py # ChromaDB vector store interface
-│ ├── create_admin.py # Admin user creation script
-│ ├── seed_data.py # Test data seeder
-│ ├── agents/
-│ │ ├── chat.py # Multi‑model chat agent
-│ │ ├── diagnosis.py # Root‑cause analysis agent
-│ │ ├── monitor.py # Anomaly detection agent
-│ │ ├── remediation.py # Remediation suggestion agent
-│ │ ├── alerting.py # Email/Slack/Teams alerting
-│ │ ├── code_fixer.py # Code patch generation
-│ │ ├── sentiment.py # User sentiment analysis
-│ │ ├── predictor.py # Incident prediction engine
-│ │ ├── clustering.py # Incident clustering
-│ │ ├── rca_tree.py # RCA tree visualisation
-│ │ ├── runbook.py # Runbook auto‑generation
-│ │ ├── knowledge_base.py # KB article generation
-│ │ ├── memory.py # Chat long‑term memory
-│ │ ├── gamification.py # Points, badges, leaderboard
-│ │ ├── vision_analyzer.py # LLaVA image analysis
-│ │ ├── image_analyzer.py # OCR‑based image analysis
-│ │ ├── log_streamer.py # Live log streaming
-│ │ ├── live_monitor.py # Real‑time monitoring engine
-│ │ ├── gpu_trainer.py # QLoRA fine‑tuning pipeline
-│ │ ├── dependency_graph.py # Service dependency graph
-│ │ ├── causal_graph.py # Granger causality engine
-│ │ ├── rl_triage.py # RL incident prioritisation
-│ │ ├── nl_to_sql.py # Natural language → SQL
-│ │ ├── pdf_generator.py # PDF report generation
-│ │ ├── bulk_processor.py # Bulk log processor
-│ │ ├── health_scorer.py # System health score
-│ │ └── benchmark.py # AI performance benchmark
-│ ├── routers/
-│ │ ├── admin.py # Admin dashboard endpoints
-│ │ ├── incidents.py # Incident CRUD endpoints
-│ │ ├── chat.py # Chat + model endpoints
-│ │ ├── diagnosis.py # Diagnosis + image analysis
-│ │ ├── community.py # Forum endpoints
-│ │ ├── notifications.py # Notification endpoints
-│ │ ├── workflow.py # Autonomous workflow
-│ │ ├── audit.py # Audit log viewer
-│ │ ├── workspace.py # Multi‑tenant workspaces
-│ │ ├── api_keys.py # API key management
-│ │ ├── workers.py # Background task workers
-│ │ ├── dashboard.py # Dashboard summary
-│ │ ├── timeline.py # Incident timeline
-│ │ ├── bulk_pdf.py # Bulk analysis + PDF
-│ │ ├── train.py # Model training endpoints
-│ │ ├── dependency.py # Dependency graph endpoints
-│ │ ├── causal.py # Causal graph endpoints
-│ │ ├── rl_triage.py # RL triage endpoints
-│ │ ├── sql_runner.py # Admin SQL runner
-│ │ ├── live_monitor.py # Live monitor endpoints
-│ │ └── analytics.py # Smart analytics endpoints
-│ ├── middleware/
-│ │ └── rate_limit.py # Redis rate limiter
-│ └── utils/
-│ └── audit_logger.py # Audit logging utility
-├── frontend/
-│ ├── app.py # Main Gradio application
-│ ├── auth.py # Login/register/logout UI
-│ ├── chat.py # AI Copilot UI
-│ ├── diagnosis.py # Live Diagnosis UI
-│ ├── incidents.py # Incident History UI
-│ ├── notifications.py # Notifications UI
-│ ├── tickets.py # Support Tickets UI
-│ ├── community.py # Community Forum UI
-│ ├── admin.py # Admin Dashboard UI
-│ ├── css.py # Premium CSS (glass‑morphism)
-│ ├── utils.py # Frontend utilities
-│ ├── pages/
-│ │ ├── bulk_analysis.py # Bulk Analysis page
-│ │ ├── model_training.py # Model Training page
-│ │ ├── dependency_graph.py # Dependency Graph page
-│ │ ├── causal_graph.py # Causal Graph page
-│ │ ├── rl_triage.py # RL Triage page
-│ │ ├── sql_runner.py # SQL Runner page
-│ │ ├── live_monitor.py # Live Monitor page
-│ │ ├── smart_analytics.py # Smart Analytics page
-│ │ └── demo_tour.py # Demo Tour overlay
-│ ├── components/
-│ │ ├── cards.py # Reusable card layouts
-│ │ ├── progress.py # Progress bars & spinners
-│ │ └── headers.py # Section headers
-│ └── styles/
-│ └── bulk_analysis.py # Page‑specific CSS
+│   ├── main.py                     # FastAPI application entry point
+│   ├── auth.py                     # JWT + bcrypt authentication system
+│   ├── models.py                   # SQLAlchemy ORM models (15 relational tables)
+│   ├── guardrails.py               # Security layer: PII masking & injection detection
+│   ├── gpu_utils.py                # Hardware layer: AMD MI300X auto-detection engine
+│   ├── cache.py                    # Performance layer: Redis caching layer utilities
+│   ├── chroma_store.py             # Database layer: ChromaDB vector store interface
+│   ├── create_admin.py             # Provisioning script: Admin user initialization
+│   ├── seed_data.py                # Database seed script: Mock production telemetry
+│   ├── agents/                     # 🤖 Core AI Agent Execution Pipeline
+│   │   ├── chat.py                 # Intelligent multi-model orchestration agent
+│   │   ├── diagnosis.py            # Deep root-cause analysis context compiler
+│   │   ├── monitor.py              # Real-time anomaly detection heuristics parser
+│   │   ├── remediation.py          # Auto-healing recommendation & script compiler
+│   │   ├── alerting.py             # Outbound communication (Email, Slack, Teams)
+│   │   ├── code_fixer.py           # Automated code patch & diff generation pipeline
+│   │   ├── sentiment.py            # Real-time operator sentiment analyzer
+│   │   ├── predictor.py            # Proactive system incident prediction matrix
+│   │   ├── clustering.py           # Log event grouping & signature matching engine
+│   │   ├── rca_tree.py             # Root Cause Analysis tree data structures
+│   │   ├── runbook.py              # Contextual runbook auto-generation processor
+│   │   ├── knowledge_base.py       # SRE documentation & knowledge base auto-compiler
+│   │   ├── memory.py               # Conversational persistent long-term memory
+│   │   ├── gamification.py         # Engagement tier: Leaderboard, metrics, badges
+│   │   ├── vision_analyzer.py      # Multimodal layer: LLaVA image context analysis
+│   │   ├── image_analyzer.py       # Traditional computer vision: OCR log analyzer
+│   │   ├── log_streamer.py         # Async event loop live log streaming module
+│   │   ├── live_monitor.py         # Active monitoring polling engine
+│   │   ├── gpu_trainer.py          # LLM tuning: Unsloth QLoRA fine-tuning script
+│   │   ├── dependency_graph.py     # Microservice topology dependency graph builder
+│   │   ├── causal_graph.py         # Stat engine: Granger causality mapping processor
+│   │   ├── rl_triage.py            # Reinforcement Learning incident prioritization
+│   │   ├── nl_to_sql.py            # Query layer: Natural language to SQL compiler
+│   │   ├── pdf_generator.py        # Executive reporting: PDF compiler backend
+│   │   ├── bulk_processor.py       # Batch log ingestion & multi-threading layer
+│   │   ├── health_scorer.py        # Composite real-time system health score utility
+│   │   └── benchmark.py            # Inference speed & execution performance tracer
+│   ├── routers/                    # 🧭 FastAPI API Endpoints & Route Triggers
+│   │   ├── admin.py                # System management & administrative panel routes
+│   │   ├── incidents.py            # Incident management CRUD operations data pipe
+│   │   ├── chat.py                 # Interactive chat session context streams
+│   │   ├── diagnosis.py            # Log analysis & visual telemetry parser entries
+│   │   ├── community.py            # SRE collaborative internal forum endpoints
+│   │   ├── notifications.py        # Push notification message queues
+│   │   ├── workflow.py             # Autonomous recovery workflow orchestration
+│   │   ├── audit.py                # Read-only historic system audit log viewer
+│   │   ├── workspace.py            # Corporate multi-tenant isolation partitions
+│   │   ├── api_keys.py             # Programmatic service token management
+│   │   ├── workers.py              # Background Celery task tracking routes
+│   │   ├── dashboard.py            # Aggregated core operations data payload
+│   │   ├── timeline.py             # Sequential incident event chain chronological paths
+│   │   ├── bulk_pdf.py             # Bulk operations report export trigger
+│   │   ├── train.py                # Hyperparameter tuning execution endpoints
+│   │   ├── dependency.py           # Topology mapping engine data adapters
+│   │   ├── causal.py               # Causality correlation processing endpoints
+│   │   ├── rl_triage.py            # Intelligent priority queue routing layer
+│   │   ├── sql_runner.py           # Database query inspection terminal adapter
+│   │   ├── live_monitor.py         # Active telemetry updates pipeline
+│   │   └── analytics.py            # Trend insight engine computation entry points
+│   ├── middleware/
+│   │   └── rate_limit.py           # Security middleware: Redis sliding-window limit
+│   └── utils/
+│       └── audit_logger.py         # Immutable secure event tracing system logger
+├── frontend/                       # 🎨 UI & Dashboard Presentation Layer (Gradio)
+│   ├── app.py                      # Main UI coordinator & tab initialization
+│   ├── auth.py                     # Session guard: Login, verification & logout views
+│   ├── chat.py                     # Real-time SRE AI Copilot assistance panel
+│   ├── diagnosis.py                # Live telemetry diagnosis system dashboard
+│   ├── incidents.py                # Historical incident search & response logs
+│   ├── notifications.py            # Operator live system update notifications UI
+│   ├── tickets.py                  # Operational help-desk ticketing client view
+│   ├── community.py                # Shared learning center internal team bulletin
+│   ├── admin.py                    # High-level system administration & analytics
+│   ├── css.py                      # Dynamic styling sheets (Glassmorphic theme UI)
+│   ├── utils.py                    # Frontend formatting and widget helpers
+│   ├── pages/                      # 📑 Component view modules
+│   │   ├── bulk_analysis.py        # Multi-file log analysis console view
+│   │   ├── model_training.py       # Fine-tuning job configuration dashboard
+│   │   ├── dependency_graph.py     # Reactive service structure canvas frame
+│   │   ├── causal_graph.py         # Time-series impact graph view
+│   │   ├── rl_triage.py            # Dynamic priority tracking panel
+│   │   ├── sql_runner.py           # Secure runtime query scratchpad interface
+│   │   ├── live_monitor.py         # Real-time updating telemetry dashboard
+│   │   ├── smart_analytics.py      # Trend analysis & pattern graph aggregates
+│   │   └── demo_tour.py            # Interactive system walkthrough module
+│   ├── components/                 # 🧱 Modular Reusable Gradio Widgets
+│   │   ├── cards.py                # High-contrast metric display grid templates
+│   │   ├── progress.py             # Computation status tracking timelines
+│   │   └── headers.py              # Consistent responsive layout boundaries
+│   └── styles/
+│       └── bulk_analysis.py        # Isolated file analysis layout custom rules
 ├── dummy_sites/
-│ └── log_generator.py # Realistic log simulator
+│   └── log_generator.py            # Local telemetry pipeline log engine simulator
 ├── logs/
-│ └── live_stream.log # Default log file (auto‑created)
-├── start_logs.sh # Quick log generator launcher
-├── requirements.txt # Python dependencies
-└── README.md # This file
+│   └── live_stream.log             # Primary streaming target file (Auto-generated)
+├── start_logs.sh                   # Automator script: Log stream execution manager
+├── requirements.txt                # Fixed framework dependencies manifest
+└── README.md                       # Comprehensive operational guide
+
+```
 
 
 

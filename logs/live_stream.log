@@ -102797,3 +102797,409 @@
 2026-06-16 21:19:32.345 [INFO] system: Request processed in 80ms
 2026-06-16 21:19:32.848 [INFO] system: Request processed in 83ms
 2026-06-16 21:19:32.848 [WARNING] nginx: Memory usage 92%
+2026-06-16 21:19:33.350 [INFO] system: Request processed in 147ms
+2026-06-16 21:19:33.350 [ERROR] database: Connection timeout after 3240ms
+2026-06-16 21:19:33.853 [INFO] system: Request processed in 37ms
+2026-06-16 21:19:33.853 [ERROR] database: Connection timeout after 3796ms
+2026-06-16 21:19:34.355 [ERROR] database: Connection timeout after 4462ms
+2026-06-16 21:19:34.355 [INFO] system: Request processed in 149ms
+2026-06-16 21:19:34.858 [INFO] system: Request processed in 87ms
+2026-06-16 21:19:34.858 [WARNING] nginx: Memory usage 92%
+2026-06-16 21:19:35.362 [INFO] system: Request processed in 65ms
+2026-06-16 21:19:35.362 [INFO] system: Request processed in 200ms
+2026-06-16 21:19:35.866 [INFO] system: Request processed in 81ms
+2026-06-16 21:19:35.866 [ERROR] database: Connection timeout after 2372ms
+2026-06-16 21:19:36.368 [INFO] system: Request processed in 156ms
+2026-06-16 21:19:36.368 [WARNING] nginx: Memory usage 91%
+2026-06-16 21:19:36.870 [ERROR] database: Connection timeout after 4550ms
+2026-06-16 21:19:36.870 [ERROR] database: Connection timeout after 3805ms
+2026-06-16 21:19:37.372 [ERROR] database: Connection timeout after 4691ms
+2026-06-16 21:19:37.372 [INFO] system: Request processed in 84ms
+2026-06-16 21:19:37.874 [INFO] system: Request processed in 12ms
+2026-06-16 21:19:37.874 [INFO] system: Request processed in 52ms
+2026-06-16 21:19:38.375 [WARNING] nginx: Memory usage 92%
+2026-06-16 21:19:38.375 [ERROR] database: Connection timeout after 2487ms
+2026-06-16 21:19:38.878 [INFO] system: Request processed in 112ms
+2026-06-16 21:19:38.878 [INFO] system: Request processed in 165ms
+2026-06-16 21:19:39.380 [WARNING] nginx: Memory usage 83%
+2026-06-16 21:19:39.380 [INFO] system: Request processed in 138ms
+2026-06-16 21:19:39.881 [INFO] system: Request processed in 116ms
+2026-06-16 21:19:39.881 [INFO] system: Request processed in 83ms
+2026-06-16 21:19:40.384 [INFO] system: Request processed in 180ms
+2026-06-16 21:19:40.384 [INFO] system: Request processed in 193ms
+2026-06-16 21:19:40.886 [INFO] system: Request processed in 128ms
+2026-06-16 21:19:40.886 [WARNING] nginx: Memory usage 89%
+2026-06-16 21:19:41.388 [INFO] system: Request processed in 175ms
+2026-06-16 21:19:41.388 [ERROR] database: Connection timeout after 1501ms
+2026-06-16 21:19:41.890 [INFO] system: Request processed in 199ms
+2026-06-16 21:19:41.890 [INFO] system: Request processed in 85ms
+2026-06-16 21:19:42.392 [ERROR] database: Connection timeout after 3597ms
+2026-06-16 21:19:42.392 [INFO] system: Request processed in 178ms
+2026-06-16 21:19:42.895 [INFO] system: Request processed in 143ms
+2026-06-16 21:19:42.895 [ERROR] database: Connection timeout after 1440ms
+2026-06-16 21:19:43.397 [INFO] system: Request processed in 146ms
+2026-06-16 21:19:43.397 [INFO] system: Request processed in 38ms
+2026-06-16 21:19:43.898 [INFO] system: Request processed in 144ms
+2026-06-16 21:19:43.898 [ERROR] database: Connection timeout after 1104ms
+2026-06-16 21:19:44.400 [INFO] system: Request processed in 36ms
+2026-06-16 21:19:44.400 [ERROR] database: Connection timeout after 4692ms
+2026-06-16 21:19:44.902 [ERROR] database: Connection timeout after 4631ms
+2026-06-16 21:19:44.902 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:19:45.404 [WARNING] nginx: Memory usage 87%
+2026-06-16 21:19:45.404 [INFO] system: Request processed in 56ms
+2026-06-16 21:19:45.906 [INFO] system: Request processed in 161ms
+2026-06-16 21:19:45.906 [INFO] system: Request processed in 111ms
+2026-06-16 21:19:46.409 [INFO] system: Request processed in 88ms
+2026-06-16 21:19:46.409 [INFO] system: Request processed in 171ms
+2026-06-16 21:19:46.911 [ERROR] database: Connection timeout after 3593ms
+2026-06-16 21:19:46.911 [WARNING] nginx: Memory usage 92%
+2026-06-16 21:19:47.415 [ERROR] database: Connection timeout after 1879ms
+2026-06-16 21:19:47.415 [INFO] system: Request processed in 189ms
+2026-06-16 21:19:47.917 [INFO] system: Request processed in 34ms
+2026-06-16 21:19:47.917 [INFO] system: Request processed in 46ms
+2026-06-16 21:19:48.420 [INFO] system: Request processed in 156ms
+2026-06-16 21:19:48.420 [INFO] system: Request processed in 79ms
+2026-06-16 21:19:48.921 [INFO] system: Request processed in 162ms
+2026-06-16 21:19:48.921 [INFO] system: Request processed in 104ms
+2026-06-16 21:19:49.423 [INFO] system: Request processed in 32ms
+2026-06-16 21:19:49.423 [ERROR] database: Connection timeout after 2921ms
+2026-06-16 21:19:49.924 [INFO] system: Request processed in 200ms
+2026-06-16 21:19:49.924 [INFO] system: Request processed in 44ms
+2026-06-16 21:19:50.426 [INFO] system: Request processed in 151ms
+2026-06-16 21:19:50.426 [WARNING] nginx: Memory usage 84%
+2026-06-16 21:19:50.929 [INFO] system: Request processed in 167ms
+2026-06-16 21:19:50.929 [WARNING] nginx: Memory usage 84%
+2026-06-16 21:19:51.431 [ERROR] database: Connection timeout after 3356ms
+2026-06-16 21:19:51.431 [INFO] system: Request processed in 36ms
+2026-06-16 21:19:51.933 [ERROR] database: Connection timeout after 4086ms
+2026-06-16 21:19:51.933 [ERROR] database: Connection timeout after 4732ms
+2026-06-16 21:19:52.435 [INFO] system: Request processed in 66ms
+2026-06-16 21:19:52.435 [WARNING] nginx: Memory usage 86%
+2026-06-16 21:19:52.936 [WARNING] nginx: Memory usage 88%
+2026-06-16 21:19:52.936 [INFO] system: Request processed in 162ms
+2026-06-16 21:19:53.438 [INFO] system: Request processed in 166ms
+2026-06-16 21:19:53.438 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:19:53.940 [INFO] system: Request processed in 80ms
+2026-06-16 21:19:53.940 [INFO] system: Request processed in 99ms
+2026-06-16 21:19:54.443 [WARNING] nginx: Memory usage 95%
+2026-06-16 21:19:54.443 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:19:54.944 [INFO] system: Request processed in 86ms
+2026-06-16 21:19:54.944 [WARNING] nginx: Memory usage 81%
+2026-06-16 21:19:55.447 [WARNING] nginx: Memory usage 92%
+2026-06-16 21:19:55.447 [INFO] system: Request processed in 193ms
+2026-06-16 21:19:55.949 [INFO] system: Request processed in 163ms
+2026-06-16 21:19:55.949 [INFO] system: Request processed in 171ms
+2026-06-16 21:19:56.451 [INFO] system: Request processed in 158ms
+2026-06-16 21:19:56.451 [ERROR] database: Connection timeout after 4619ms
+2026-06-16 21:19:56.952 [WARNING] nginx: Memory usage 85%
+2026-06-16 21:19:56.952 [INFO] system: Request processed in 186ms
+2026-06-16 21:19:57.454 [INFO] system: Request processed in 79ms
+2026-06-16 21:19:57.454 [INFO] system: Request processed in 173ms
+2026-06-16 21:19:57.956 [INFO] system: Request processed in 126ms
+2026-06-16 21:19:57.956 [INFO] system: Request processed in 188ms
+2026-06-16 21:19:58.459 [INFO] system: Request processed in 180ms
+2026-06-16 21:19:58.459 [WARNING] nginx: Memory usage 85%
+2026-06-16 21:19:58.963 [INFO] system: Request processed in 129ms
+2026-06-16 21:19:58.963 [ERROR] database: Connection timeout after 1429ms
+2026-06-16 21:19:59.465 [INFO] system: Request processed in 97ms
+2026-06-16 21:19:59.465 [INFO] system: Request processed in 11ms
+2026-06-16 21:19:59.967 [INFO] system: Request processed in 140ms
+2026-06-16 21:19:59.967 [INFO] system: Request processed in 42ms
+2026-06-16 21:20:00.469 [INFO] system: Request processed in 135ms
+2026-06-16 21:20:00.469 [INFO] system: Request processed in 10ms
+2026-06-16 21:20:00.970 [ERROR] database: Connection timeout after 1430ms
+2026-06-16 21:20:00.970 [INFO] system: Request processed in 126ms
+2026-06-16 21:20:01.477 [ERROR] database: Connection timeout after 2706ms
+2026-06-16 21:20:01.477 [INFO] system: Request processed in 160ms
+2026-06-16 21:20:01.978 [ERROR] database: Connection timeout after 4541ms
+2026-06-16 21:20:01.978 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:02.482 [INFO] system: Request processed in 20ms
+2026-06-16 21:20:02.483 [INFO] system: Request processed in 10ms
+2026-06-16 21:20:02.984 [INFO] system: Request processed in 22ms
+2026-06-16 21:20:02.989 [ERROR] database: Connection timeout after 3998ms
+2026-06-16 21:20:03.489 [WARNING] nginx: Memory usage 86%
+2026-06-16 21:20:03.489 [INFO] system: Request processed in 120ms
+2026-06-16 21:20:03.991 [ERROR] database: Connection timeout after 1409ms
+2026-06-16 21:20:03.991 [ERROR] database: Connection timeout after 1892ms
+2026-06-16 21:20:04.493 [INFO] system: Request processed in 179ms
+2026-06-16 21:20:04.493 [INFO] system: Request processed in 14ms
+2026-06-16 21:20:04.994 [INFO] system: Request processed in 184ms
+2026-06-16 21:20:04.994 [ERROR] database: Connection timeout after 3906ms
+2026-06-16 21:20:05.496 [INFO] system: Request processed in 108ms
+2026-06-16 21:20:05.496 [INFO] system: Request processed in 73ms
+2026-06-16 21:20:05.998 [INFO] system: Request processed in 185ms
+2026-06-16 21:20:05.998 [INFO] system: Request processed in 153ms
+2026-06-16 21:20:06.502 [INFO] system: Request processed in 75ms
+2026-06-16 21:20:06.502 [INFO] system: Request processed in 29ms
+2026-06-16 21:20:07.006 [INFO] system: Request processed in 88ms
+2026-06-16 21:20:07.006 [INFO] system: Request processed in 162ms
+2026-06-16 21:20:07.509 [INFO] system: Request processed in 169ms
+2026-06-16 21:20:07.509 [INFO] system: Request processed in 120ms
+2026-06-16 21:20:08.011 [INFO] system: Request processed in 137ms
+2026-06-16 21:20:08.011 [ERROR] database: Connection timeout after 2962ms
+2026-06-16 21:20:08.513 [INFO] system: Request processed in 105ms
+2026-06-16 21:20:08.513 [INFO] system: Request processed in 91ms
+2026-06-16 21:20:09.015 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:09.015 [ERROR] database: Connection timeout after 3533ms
+2026-06-16 21:20:09.517 [INFO] system: Request processed in 177ms
+2026-06-16 21:20:09.517 [INFO] system: Request processed in 11ms
+2026-06-16 21:20:10.018 [INFO] system: Request processed in 38ms
+2026-06-16 21:20:10.018 [INFO] system: Request processed in 140ms
+2026-06-16 21:20:10.520 [WARNING] nginx: Memory usage 81%
+2026-06-16 21:20:10.520 [INFO] system: Request processed in 38ms
+2026-06-16 21:20:11.022 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:11.023 [ERROR] database: Connection timeout after 2323ms
+2026-06-16 21:20:11.525 [INFO] system: Request processed in 179ms
+2026-06-16 21:20:11.525 [INFO] system: Request processed in 190ms
+2026-06-16 21:20:12.027 [ERROR] database: Connection timeout after 4149ms
+2026-06-16 21:20:12.027 [WARNING] nginx: Memory usage 80%
+2026-06-16 21:20:12.529 [INFO] system: Request processed in 125ms
+2026-06-16 21:20:12.529 [ERROR] database: Connection timeout after 2335ms
+2026-06-16 21:20:13.035 [INFO] system: Request processed in 172ms
+2026-06-16 21:20:13.035 [ERROR] database: Connection timeout after 2248ms
+2026-06-16 21:20:13.538 [ERROR] database: Connection timeout after 1284ms
+2026-06-16 21:20:13.538 [WARNING] nginx: Memory usage 93%
+2026-06-16 21:20:14.039 [ERROR] database: Connection timeout after 4328ms
+2026-06-16 21:20:14.039 [ERROR] database: Connection timeout after 4807ms
+2026-06-16 21:20:14.541 [ERROR] database: Connection timeout after 2544ms
+2026-06-16 21:20:14.541 [WARNING] nginx: Memory usage 80%
+2026-06-16 21:20:15.042 [ERROR] database: Connection timeout after 3573ms
+2026-06-16 21:20:15.042 [WARNING] nginx: Memory usage 87%
+2026-06-16 21:20:15.545 [INFO] system: Request processed in 87ms
+2026-06-16 21:20:15.545 [INFO] system: Request processed in 153ms
+2026-06-16 21:20:16.046 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:16.046 [INFO] system: Request processed in 158ms
+2026-06-16 21:20:16.549 [INFO] system: Request processed in 18ms
+2026-06-16 21:20:16.549 [ERROR] database: Connection timeout after 3334ms
+2026-06-16 21:20:17.050 [ERROR] database: Connection timeout after 4692ms
+2026-06-16 21:20:17.050 [WARNING] nginx: Memory usage 93%
+2026-06-16 21:20:17.553 [WARNING] nginx: Memory usage 85%
+2026-06-16 21:20:17.553 [ERROR] database: Connection timeout after 3865ms
+2026-06-16 21:20:18.054 [INFO] system: Request processed in 132ms
+2026-06-16 21:20:18.054 [INFO] system: Request processed in 111ms
+2026-06-16 21:20:18.556 [INFO] system: Request processed in 87ms
+2026-06-16 21:20:18.556 [ERROR] database: Connection timeout after 2389ms
+2026-06-16 21:20:19.060 [WARNING] nginx: Memory usage 80%
+2026-06-16 21:20:19.060 [INFO] system: Request processed in 13ms
+2026-06-16 21:20:19.561 [WARNING] nginx: Memory usage 81%
+2026-06-16 21:20:19.562 [INFO] system: Request processed in 194ms
+2026-06-16 21:20:20.063 [INFO] system: Request processed in 25ms
+2026-06-16 21:20:20.063 [WARNING] nginx: Memory usage 85%
+2026-06-16 21:20:20.565 [INFO] system: Request processed in 67ms
+2026-06-16 21:20:20.565 [WARNING] nginx: Memory usage 90%
+2026-06-16 21:20:21.067 [ERROR] database: Connection timeout after 3572ms
+2026-06-16 21:20:21.067 [INFO] system: Request processed in 188ms
+2026-06-16 21:20:21.569 [INFO] system: Request processed in 153ms
+2026-06-16 21:20:21.569 [INFO] system: Request processed in 19ms
+2026-06-16 21:20:22.070 [ERROR] database: Connection timeout after 2466ms
+2026-06-16 21:20:22.070 [INFO] system: Request processed in 115ms
+2026-06-16 21:20:22.574 [INFO] system: Request processed in 39ms
+2026-06-16 21:20:22.574 [INFO] system: Request processed in 67ms
+2026-06-16 21:20:23.076 [WARNING] nginx: Memory usage 91%
+2026-06-16 21:20:23.076 [INFO] system: Request processed in 196ms
+2026-06-16 21:20:23.578 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:23.578 [ERROR] database: Connection timeout after 4563ms
+2026-06-16 21:20:24.079 [INFO] system: Request processed in 158ms
+2026-06-16 21:20:24.081 [INFO] system: Request processed in 112ms
+2026-06-16 21:20:24.581 [ERROR] database: Connection timeout after 1780ms
+2026-06-16 21:20:24.582 [INFO] system: Request processed in 166ms
+2026-06-16 21:20:25.085 [ERROR] database: Connection timeout after 3496ms
+2026-06-16 21:20:25.085 [INFO] system: Request processed in 159ms
+2026-06-16 21:20:25.587 [ERROR] database: Connection timeout after 2457ms
+2026-06-16 21:20:25.587 [INFO] system: Request processed in 147ms
+2026-06-16 21:20:26.089 [INFO] system: Request processed in 192ms
+2026-06-16 21:20:26.089 [INFO] system: Request processed in 128ms
+2026-06-16 21:20:26.591 [WARNING] nginx: Memory usage 85%
+2026-06-16 21:20:26.591 [INFO] system: Request processed in 150ms
+2026-06-16 21:20:27.092 [WARNING] nginx: Memory usage 80%
+2026-06-16 21:20:27.092 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:27.594 [ERROR] database: Connection timeout after 4491ms
+2026-06-16 21:20:27.594 [WARNING] nginx: Memory usage 88%
+2026-06-16 21:20:28.095 [INFO] system: Request processed in 200ms
+2026-06-16 21:20:28.095 [ERROR] database: Connection timeout after 4994ms
+2026-06-16 21:20:28.597 [INFO] system: Request processed in 135ms
+2026-06-16 21:20:28.597 [WARNING] nginx: Memory usage 90%
+2026-06-16 21:20:29.098 [INFO] system: Request processed in 46ms
+2026-06-16 21:20:29.098 [ERROR] database: Connection timeout after 1016ms
+2026-06-16 21:20:29.600 [INFO] system: Request processed in 65ms
+2026-06-16 21:20:29.600 [WARNING] nginx: Memory usage 88%
+2026-06-16 21:20:30.102 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:30.102 [WARNING] nginx: Memory usage 95%
+2026-06-16 21:20:30.604 [INFO] system: Request processed in 49ms
+2026-06-16 21:20:30.604 [ERROR] database: Connection timeout after 1374ms
+2026-06-16 21:20:31.106 [INFO] system: Request processed in 193ms
+2026-06-16 21:20:31.106 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:31.609 [ERROR] database: Connection timeout after 3861ms
+2026-06-16 21:20:31.609 [INFO] system: Request processed in 158ms
+2026-06-16 21:20:32.110 [INFO] system: Request processed in 155ms
+2026-06-16 21:20:32.110 [INFO] system: Request processed in 100ms
+2026-06-16 21:20:32.612 [ERROR] database: Connection timeout after 3169ms
+2026-06-16 21:20:32.612 [INFO] system: Request processed in 29ms
+2026-06-16 21:20:33.115 [INFO] system: Request processed in 62ms
+2026-06-16 21:20:33.115 [INFO] system: Request processed in 51ms
+2026-06-16 21:20:33.617 [ERROR] database: Connection timeout after 2792ms
+2026-06-16 21:20:33.617 [ERROR] database: Connection timeout after 1655ms
+2026-06-16 21:20:34.121 [INFO] system: Request processed in 56ms
+2026-06-16 21:20:34.121 [INFO] system: Request processed in 137ms
+2026-06-16 21:20:34.624 [INFO] system: Request processed in 146ms
+2026-06-16 21:20:34.625 [INFO] system: Request processed in 119ms
+2026-06-16 21:20:35.126 [ERROR] database: Connection timeout after 1076ms
+2026-06-16 21:20:35.126 [INFO] system: Request processed in 46ms
+2026-06-16 21:20:35.628 [INFO] system: Request processed in 161ms
+2026-06-16 21:20:35.628 [INFO] system: Request processed in 171ms
+2026-06-16 21:20:36.130 [ERROR] database: Connection timeout after 2187ms
+2026-06-16 21:20:36.130 [ERROR] database: Connection timeout after 2397ms
+2026-06-16 21:20:36.632 [INFO] system: Request processed in 35ms
+2026-06-16 21:20:36.632 [INFO] system: Request processed in 194ms
+2026-06-16 21:20:37.133 [WARNING] nginx: Memory usage 87%
+2026-06-16 21:20:37.133 [INFO] system: Request processed in 108ms
+2026-06-16 21:20:37.635 [INFO] system: Request processed in 198ms
+2026-06-16 21:20:37.635 [INFO] system: Request processed in 122ms
+2026-06-16 21:20:38.143 [INFO] system: Request processed in 68ms
+2026-06-16 21:20:38.144 [ERROR] database: Connection timeout after 1559ms
+2026-06-16 21:20:38.645 [INFO] system: Request processed in 15ms
+2026-06-16 21:20:38.645 [WARNING] nginx: Memory usage 87%
+2026-06-16 21:20:39.149 [INFO] system: Request processed in 188ms
+2026-06-16 21:20:39.149 [WARNING] nginx: Memory usage 89%
+2026-06-16 21:20:39.651 [WARNING] nginx: Memory usage 90%
+2026-06-16 21:20:39.651 [ERROR] database: Connection timeout after 3395ms
+2026-06-16 21:20:40.154 [ERROR] database: Connection timeout after 2846ms
+2026-06-16 21:20:40.154 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:40.656 [INFO] system: Request processed in 58ms
+2026-06-16 21:20:40.656 [WARNING] nginx: Memory usage 82%
+2026-06-16 21:20:41.158 [INFO] system: Request processed in 63ms
+2026-06-16 21:20:41.158 [INFO] system: Request processed in 184ms
+2026-06-16 21:20:41.660 [INFO] system: Request processed in 64ms
+2026-06-16 21:20:41.660 [INFO] system: Request processed in 14ms
+2026-06-16 21:20:42.162 [WARNING] nginx: Memory usage 91%
+2026-06-16 21:20:42.162 [ERROR] database: Connection timeout after 2342ms
+2026-06-16 21:20:42.664 [ERROR] database: Connection timeout after 3361ms
+2026-06-16 21:20:42.664 [ERROR] database: Connection timeout after 3292ms
+2026-06-16 21:20:43.165 [INFO] system: Request processed in 107ms
+2026-06-16 21:20:43.165 [INFO] system: Request processed in 140ms
+2026-06-16 21:20:43.667 [INFO] system: Request processed in 94ms
+2026-06-16 21:20:43.667 [INFO] system: Request processed in 16ms
+2026-06-16 21:20:44.168 [INFO] system: Request processed in 150ms
+2026-06-16 21:20:44.168 [INFO] system: Request processed in 141ms
+2026-06-16 21:20:44.670 [INFO] system: Request processed in 72ms
+2026-06-16 21:20:44.670 [INFO] system: Request processed in 13ms
+2026-06-16 21:20:45.172 [WARNING] nginx: Memory usage 86%
+2026-06-16 21:20:45.172 [WARNING] nginx: Memory usage 95%
+2026-06-16 21:20:45.674 [INFO] system: Request processed in 193ms
+2026-06-16 21:20:45.674 [ERROR] database: Connection timeout after 3326ms
+2026-06-16 21:20:46.176 [INFO] system: Request processed in 88ms
+2026-06-16 21:20:46.176 [INFO] system: Request processed in 64ms
+2026-06-16 21:20:46.678 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:46.678 [INFO] system: Request processed in 12ms
+2026-06-16 21:20:47.179 [INFO] system: Request processed in 23ms
+2026-06-16 21:20:47.179 [INFO] system: Request processed in 88ms
+2026-06-16 21:20:47.681 [INFO] system: Request processed in 98ms
+2026-06-16 21:20:47.681 [INFO] system: Request processed in 62ms
+2026-06-16 21:20:48.182 [INFO] system: Request processed in 108ms
+2026-06-16 21:20:48.182 [WARNING] nginx: Memory usage 81%
+2026-06-16 21:20:48.685 [ERROR] database: Connection timeout after 1587ms
+2026-06-16 21:20:48.685 [INFO] system: Request processed in 181ms
+2026-06-16 21:20:49.187 [WARNING] nginx: Memory usage 84%
+2026-06-16 21:20:49.187 [INFO] system: Request processed in 82ms
+2026-06-16 21:20:49.691 [INFO] system: Request processed in 153ms
+2026-06-16 21:20:49.691 [ERROR] database: Connection timeout after 3529ms
+2026-06-16 21:20:50.193 [INFO] system: Request processed in 113ms
+2026-06-16 21:20:50.193 [INFO] system: Request processed in 153ms
+2026-06-16 21:20:50.703 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:20:50.703 [INFO] system: Request processed in 65ms
+2026-06-16 21:20:51.206 [INFO] system: Request processed in 65ms
+2026-06-16 21:20:51.206 [ERROR] database: Connection timeout after 3472ms
+2026-06-16 21:20:51.710 [INFO] system: Request processed in 70ms
+2026-06-16 21:20:51.710 [INFO] system: Request processed in 177ms
+2026-06-16 21:20:52.211 [INFO] system: Request processed in 133ms
+2026-06-16 21:20:52.211 [INFO] system: Request processed in 83ms
+2026-06-16 21:20:52.714 [WARNING] nginx: Memory usage 95%
+2026-06-16 21:20:52.714 [WARNING] nginx: Memory usage 93%
+2026-06-16 21:20:53.215 [ERROR] database: Connection timeout after 2764ms
+2026-06-16 21:20:53.215 [INFO] system: Request processed in 129ms
+2026-06-16 21:20:53.717 [INFO] system: Request processed in 100ms
+2026-06-16 21:20:53.717 [INFO] system: Request processed in 138ms
+2026-06-16 21:20:54.220 [WARNING] nginx: Memory usage 84%
+2026-06-16 21:20:54.220 [INFO] system: Request processed in 193ms
+2026-06-16 21:20:54.723 [WARNING] nginx: Memory usage 89%
+2026-06-16 21:20:54.723 [INFO] system: Request processed in 34ms
+2026-06-16 21:20:55.225 [INFO] system: Request processed in 81ms
+2026-06-16 21:20:55.225 [INFO] system: Request processed in 38ms
+2026-06-16 21:20:55.726 [WARNING] nginx: Memory usage 87%
+2026-06-16 21:20:55.726 [INFO] system: Request processed in 176ms
+2026-06-16 21:20:56.228 [INFO] system: Request processed in 113ms
+2026-06-16 21:20:56.228 [INFO] system: Request processed in 11ms
+2026-06-16 21:20:56.730 [INFO] system: Request processed in 37ms
+2026-06-16 21:20:56.730 [ERROR] database: Connection timeout after 4315ms
+2026-06-16 21:20:57.233 [WARNING] nginx: Memory usage 82%
+2026-06-16 21:20:57.233 [WARNING] nginx: Memory usage 93%
+2026-06-16 21:20:57.736 [INFO] system: Request processed in 66ms
+2026-06-16 21:20:57.736 [INFO] system: Request processed in 107ms
+2026-06-16 21:20:58.238 [INFO] system: Request processed in 198ms
+2026-06-16 21:20:58.238 [INFO] system: Request processed in 22ms
+2026-06-16 21:20:58.739 [INFO] system: Request processed in 177ms
+2026-06-16 21:20:58.739 [INFO] system: Request processed in 152ms
+2026-06-16 21:20:59.240 [INFO] system: Request processed in 183ms
+2026-06-16 21:20:59.240 [INFO] system: Request processed in 154ms
+2026-06-16 21:20:59.742 [INFO] system: Request processed in 22ms
+2026-06-16 21:20:59.742 [INFO] system: Request processed in 111ms
+2026-06-16 21:21:00.244 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:21:00.244 [WARNING] nginx: Memory usage 94%
+2026-06-16 21:21:00.745 [INFO] system: Request processed in 122ms
+2026-06-16 21:21:00.745 [ERROR] database: Connection timeout after 2250ms
+2026-06-16 21:21:01.247 [ERROR] database: Connection timeout after 2711ms
+2026-06-16 21:21:01.247 [INFO] system: Request processed in 152ms
+2026-06-16 21:21:01.749 [WARNING] nginx: Memory usage 88%
+2026-06-16 21:21:01.749 [INFO] system: Request processed in 36ms
+2026-06-16 21:21:02.252 [INFO] system: Request processed in 44ms
+2026-06-16 21:21:02.252 [WARNING] nginx: Memory usage 91%
+2026-06-16 21:21:02.754 [INFO] system: Request processed in 114ms
+2026-06-16 21:21:02.754 [INFO] system: Request processed in 130ms
+2026-06-16 21:21:03.255 [ERROR] database: Connection timeout after 3865ms
+2026-06-16 21:21:03.256 [WARNING] nginx: Memory usage 84%
+2026-06-16 21:21:03.758 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:21:03.758 [INFO] system: Request processed in 114ms
+2026-06-16 21:21:04.260 [INFO] system: Request processed in 35ms
+2026-06-16 21:21:04.260 [ERROR] database: Connection timeout after 4878ms
+2026-06-16 21:21:04.762 [INFO] system: Request processed in 181ms
+2026-06-16 21:21:04.762 [INFO] system: Request processed in 43ms
+2026-06-16 21:21:05.264 [ERROR] database: Connection timeout after 2115ms
+2026-06-16 21:21:05.264 [INFO] system: Request processed in 35ms
+2026-06-16 21:21:05.769 [INFO] system: Request processed in 151ms
+2026-06-16 21:21:05.769 [CRITICAL] api-gateway: Service crashed
+2026-06-16 21:21:06.271 [INFO] system: Request processed in 144ms
+2026-06-16 21:21:06.271 [INFO] system: Request processed in 136ms
+2026-06-16 21:21:06.773 [ERROR] database: Connection timeout after 2244ms
+2026-06-16 21:21:06.773 [ERROR] database: Connection timeout after 2702ms
+2026-06-16 21:21:07.275 [WARNING] nginx: Memory usage 82%
+2026-06-16 21:21:07.275 [WARNING] nginx: Memory usage 80%
+2026-06-16 21:21:07.776 [ERROR] database: Connection timeout after 4371ms
+2026-06-16 21:21:07.776 [WARNING] nginx: Memory usage 82%
+2026-06-16 21:21:08.278 [INFO] system: Request processed in 117ms
+2026-06-16 21:21:08.278 [INFO] system: Request processed in 59ms
+2026-06-16 21:21:08.779 [INFO] system: Request processed in 89ms
+2026-06-16 21:21:08.779 [ERROR] database: Connection timeout after 3519ms
+2026-06-16 21:21:09.281 [INFO] system: Request processed in 163ms
+2026-06-16 21:21:09.281 [INFO] system: Request processed in 158ms
+2026-06-16 21:21:09.783 [INFO] system: Request processed in 146ms
+2026-06-16 21:21:09.783 [INFO] system: Request processed in 10ms
+2026-06-16 21:21:10.285 [INFO] system: Request processed in 62ms
+2026-06-16 21:21:10.285 [ERROR] database: Connection timeout after 2880ms
+2026-06-16 21:21:10.786 [WARNING] nginx: Memory usage 90%
+2026-06-16 21:21:10.786 [ERROR] database: Connection timeout after 4954ms
+2026-06-16 21:21:11.289 [INFO] system: Request processed in 176ms
+2026-06-16 21:21:11.289 [INFO] system: Request processed in 39ms
+2026-06-16 21:21:11.790 [INFO] system: Request processed in 172ms
+2026-06-16 21:21:11.790 [INFO] system: Request processed in 128ms
+2026-06-16 21:21:12.292 [WARNING] nginx: Memory usage 90%
+2026-06-16 21:21:12.292 [INFO] system: Request processed in 155ms
+2026-06-16 21:21:12.794 [INFO] system: Request processed in 46ms
+2026-06-16 21:21:12.794 [INFO] system: Request processed in 155ms
+2026-06-16 21:21:13.295 [ERROR] database: Connection timeout after 1397ms
+2026-06-16 21:21:13.295 [ERROR] database: Connection timeout after 3607ms
+2026-06-16 21:21:13.797 [INFO] system: Request processed in 28ms
+2026-06-16 21:21:13.797 [INFO] system: Request processed in 200ms
+2026-06-16 21:21:14.298 [WARNING] nginx: Memory usage 89%
+2026-06-16 21:21:14.298 [INFO] system: Request processed in 82ms
+2026-06-16 21:21:14.806 [INFO] system: Request processed in 110ms
+2026-06-16 21:21:14.806 [INFO] system: Request processed in 101ms
