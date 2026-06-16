@@ -151,7 +151,7 @@ def generate_rca_tree(logs_text, token):
             headers={"Authorization": f"Bearer {token}"}, timeout=120
         )
         if res.status_code == 200:
-            return gr.update(value=data.get("html", "*No tree generated*"))
+            return gr.update(value=res.json().get("html", "*No tree generated*"))
     except Exception as e:
         return gr.update(value=f"*Error: {str(e)}*")
 
@@ -165,7 +165,7 @@ def generate_code_fix(logs_text, token):
             headers={"Authorization": f"Bearer {token}"}, timeout=120
         )
         if res.status_code == 200:
-            return data.get("html", "*No fixes generated*")
+            return res.json().get("html", "*No fixes generated*")
     except Exception as e:
         return f"<p style='color:#ef4444;'>Error: {str(e)}</p>"
 

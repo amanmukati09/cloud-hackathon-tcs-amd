@@ -6,39 +6,6 @@ from utils import BACKEND_URL
 from datetime import datetime
 
 
-def load_admin_data(token):
-    if not token: 
-        return 0, 0, 0, pd.DataFrame()
-    try:
-        m_res = requests.get(
-            f"{BACKEND_URL}/admin/metrics", 
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=5
-        )
-        u_res = requests.get(
-            f"{BACKEND_URL}/admin/users?limit=50", 
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
-        )
-        users, incidents, chats = 0, 0, 0
-        df = pd.DataFrame()
-        if m_res.status_code == 200:
-            m = m_res.json()
-            users = m.get("users", 0)
-            incidents = m.get("incidents", 0)
-            chats = m.get("chats", 0)
-        if u_res.status_code == 200:
-            data = u_res.json()
-            if data:
-                df = pd.DataFrame(data)
-        return users, incidents, chats, df
-    except requests.exceptions.Timeout:
-        print("Admin data timeout - returning empty")
-        return 0, 0, 0, pd.DataFrame()
-    except Exception as e:
-        print(f"Admin data error: {e}")
-        return 0, 0, 0, pd.DataFrame()
-
 def fetch_analytics(token, days=30, severity="ALL"):
     if not token:
         return (
@@ -152,46 +119,13 @@ def load_admin_data(token, days=30, severity="ALL"):
         return 0, 0, 0, 0, 0, 0, pd.DataFrame()
 
         
-
         
-def fetch_predictions(token):
-    """Fetch incident predictions."""
-    if not token:
-        return gr.update(value="*Login as admin to view predictions*")
-    try:
-        res = requests.get(
-            f"{BACKEND_URL}/admin/predictions",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
-        )
-        if res.status_code == 200:
-            data = res.json()
-            risk_color = {"HIGH": "#ef4444", "MEDIUM": "#f59e0b", "LOW": "#10b981"}
-            risk = data.get('risk_level', 'LOW')
-            html = f"""### AI Predictions
-**Risk Level:** <span style="color:{risk_color.get(risk, '#10b981')};font-weight:bold;">{risk}</span>
-
-{data.get('summary', '')}
-
----
-"""
-            for p in data.get("predictions", []):
-                conf_color = "#10b981" if p["confidence"] > 70 else "#f59e0b" if p["confidence"] > 40 else "#ef4444"
-                html += f"""**{p['title']}** <span style="color:{conf_color};font-size:0.8em;">({p['confidence']:.0f}%)</span>
-{p['detail']}
-
-"""
-            return gr.update(value=html)
-        else:
-            return gr.update(value="*Admin access required*")
-    except Exception as e:
-        print(f"Prediction error: {e}")
-        return gr.update(value="*Failed to load predictions*")
-
 def purge_user(token, target_id):
     if not target_id:
+        # load_admin_data returns (users, incidents, chats, resolved, open_count, critical, df)
         data = load_admin_data(token)
-        return data[0], data[1], data[2], data[3], gr.update(value="Please enter a valid User ID.")
+        # We only need users, incidents, chats, and the dataframe for the table
+        return data[0], data[1], data[2], data[6], gr.update(value="Enter a valid User ID.")
     try:
         res = requests.delete(
             f"{BACKEND_URL}/admin/users/{int(target_id)}",
@@ -200,13 +134,16 @@ def purge_user(token, target_id):
         )
         data = load_admin_data(token)
         if res.status_code == 200:
-            return data[0], data[1], data[2], data[3], gr.update(value=f"User ID {int(target_id)} permanently deleted.")
+            msg = gr.update(value=f"User ID {int(target_id)} permanently deleted.")
         else:
             detail = res.json().get('detail', 'Unknown error')
-            return data[0], data[1], data[2], data[3], gr.update(value=f"Action Rejected: {detail}")
+            msg = gr.update(value=f"Action Rejected: {detail}")
+        # Return exactly 5 values: users, incidents, chats, dataframe, status message
+        return data[0], data[1], data[2], data[6], msg
     except Exception as e:
         data = load_admin_data(token)
-        return data[0], data[1], data[2], data[3], gr.update(value=f"Error: {e}")
+        return data[0], data[1], data[2], data[6], gr.update(value=f"Error: {e}")
+        
 
 def inspect_user_data(token, target_id):
     if not target_id:
@@ -240,10 +177,6 @@ def inspect_user_data(token, target_id):
         return df_inc, df_chat, gr.update(value=f"Loaded activity for User ID: {int(target_id)}")
     except Exception as e:
         return pd.DataFrame(), pd.DataFrame(), gr.update(value=f"Error: {e}")
-
-        
-
-        
 
 
 def fetch_predictions(token):

@@ -1,18 +1,24 @@
 # backend/routers/chat.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+import json, asyncio, subprocess
+
 from models import get_db, User, ChatSession, ChatMessage, Incident
 from auth import get_current_user
 from agents.chat import ChatAgent
+from agents.memory import ChatMemoryStore
 from guardrails import guard
 from fastapi.concurrency import run_in_threadpool
-import asyncio
+from cache import cached, clear_prefix
+from utils.audit_logger import log_action
 
 router = APIRouter()
 chat_agent = ChatAgent()
+memory_store = ChatMemoryStore()
 
 class AILimiter:
     def __init__(self, limit=2):
@@ -34,7 +40,10 @@ class ChatRequest(BaseModel):
 class RenameRequest(BaseModel):
     new_title: str
 
-# ── Send message (with multi‑turn history + USER‑FILTERED RAG) ──
+class ModelSwitchRequest(BaseModel):
+    model: str
+
+# ── Send message (multi‑turn + RAG + Sentiment + MEMORY) ──
 @router.post("/chat/message")
 async def send_chat_message(
     req: ChatRequest,
@@ -42,126 +51,247 @@ async def send_chat_message(
     db: Session = Depends(get_db)
 ):
     if guard.is_prompt_injection(req.message):
-        raise HTTPException(status_code=400, detail="Security Exception: Prompt injection attempt detected and blocked.")
+        raise HTTPException(status_code=400, detail="Security Exception")
 
     safe_message, _ = guard.mask_pii(req.message)
     security_context = guard.get_ollama_security_prompt()
 
-    # ─── USER‑FILTERED RAG: Search ChromaDB ───
+    # ─── Long‑Term Memory ─────────────────────────────
+    memory_context = ""
+    try:
+        memory_store.add_message(current_user.id, req.session_id or 0, "user", safe_message)
+        memories = memory_store.search_memories(current_user.id, safe_message, top_k=3)
+        if memories:
+            memory_parts = []
+            for mem in memories:
+                if mem['similarity'] > 0.3:
+                    memory_parts.append(f"Past conversation: {mem['content'][:200]}")
+            if memory_parts:
+                memory_context = "[LONG-TERM MEMORY]\n" + "\n".join(memory_parts) + "\n[/LONG-TERM MEMORY]"
+    except Exception as e:
+        print(f"Memory error: {e}")
+
+    # ─── RAG: Search ChromaDB ───
     rag_context = ""
     try:
         from chroma_store import IncidentStore
         store = IncidentStore()
-        results = store.search_similar(safe_message, top_k=20)  # get more candidates for filtering
-
+        results = store.search_similar(safe_message, top_k=20)
         if results and results.get('ids') and results['ids'][0]:
-            rag_parts = []
-            count_added = 0
-            max_rag = 3 if not current_user.is_admin else 10  # 🎯 user‑specific limit
-
-            for i, incident_id in enumerate(results['ids'][0]):
-                if count_added >= max_rag:
-                    break
-
-                inc = db.query(Incident).filter(Incident.id == int(incident_id)).first()
-                if not inc:
+            rag_parts, cnt = [], 0
+            max_rag = 3 if not current_user.is_admin else 10
+            for i, iid in enumerate(results['ids'][0]):
+                if cnt >= max_rag: break
+                inc = db.query(Incident).filter(Incident.id == int(iid)).first()
+                if not inc or (not current_user.is_admin and inc.user_id != current_user.id):
                     continue
-
-                # 🎯 FILTER: standard user only sees their own incidents
-                if not current_user.is_admin and inc.user_id != current_user.id:
-                    continue
-
-                similarity = round((1 - results['distances'][0][i]) * 100, 1)
-                rag_parts.append(
-                    f"Incident #{inc.id} ({inc.timestamp.strftime('%Y-%m-%d')}, "
-                    f"{similarity}% match): "
-                    f"Anomaly: {inc.anomaly_description or 'N/A'}. "
-                    f"Root Cause: {inc.root_cause or 'N/A'}. "
-                    f"Remediation: {inc.remediation_action or 'N/A'}. "
-                    f"Status: {inc.status}."
-                )
-                count_added += 1
-
+                sim = round((1 - results['distances'][0][i]) * 100, 1)
+                rag_parts.append(f"Incident #{inc.id} ({sim}% match): {inc.root_cause or 'N/A'}. Fix: {inc.remediation_action or 'N/A'}")
+                cnt += 1
             if rag_parts:
-                user_type = "ADMIN (all incidents)" if current_user.is_admin else "USER (your incidents only)"
-                rag_context = "\n".join(
-                    [f"[RELEVANT PAST INCIDENTS - {user_type}]",
-                     *rag_parts,
-                     "[/RELEVANT PAST INCIDENTS]"]
-                )
+                utype = "ADMIN" if current_user.is_admin else "USER"
+                rag_context = f"[PAST INCIDENTS - {utype}]\n" + "\n".join(rag_parts)
     except Exception as e:
-        print(f"RAG search failed: {e}")
+        print(f"RAG error: {e}")
 
-    # Build enforced prompt
+    # ─── Sentiment ────────────────────────────────────
+    from agents.sentiment import SentimentAnalyzer
+    sentiment = SentimentAnalyzer().analyze_message(safe_message)
+    esc = "\n[⚠️ USER FRUSTRATED - be empathetic]" if sentiment.get("needs_escalation") else ""
+
+    # ─── Build enforced prompt ────────────────────────
+    prompt_parts = [security_context]
+    if memory_context:
+        prompt_parts.append(memory_context)
     if rag_context:
-        enforced_prompt = f"{security_context}\n\n{rag_context}\n\nUser Request:\n{safe_message}"
-    else:
-        enforced_prompt = f"{security_context}\n\nUser Request:\n{safe_message}"
+        prompt_parts.append(rag_context)
+    if esc:
+        prompt_parts.append(esc)
+    prompt_parts.append(f"User Request:\n{safe_message}")
+    enforced_prompt = "\n\n".join([p for p in prompt_parts if p])
 
     # ── Session handling ──
     session_id = req.session_id
     if not session_id:
-        title = safe_message[:50]
-        if "error" in safe_message.lower():
-            title = "🐛 Error Discussion"
-        elif "anomaly" in safe_message.lower() or "diagnos" in safe_message.lower():
-            title = "🔍 Incident Analysis"
-        elif "hello" in safe_message.lower() or "hi" in safe_message.lower():
-            title = "👋 General Chat"
-        elif "log" in safe_message.lower():
-            title = "📋 Log Analysis"
-        elif "help" in safe_message.lower():
-            title = "🆘 Support Request"
-        else:
-            title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
+        title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
         new_session = ChatSession(user_id=current_user.id, title=title)
-        db.add(new_session)
-        db.commit()
-        db.refresh(new_session)
+        db.add(new_session); db.commit(); db.refresh(new_session)
         session_id = new_session.id
+        log_action(db, current_user, "chat_created", resource_type="chat_session", resource_id=session_id)
+        clear_prefix("chat_sessions")
 
     user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
-    db.add(user_msg)
-    db.commit()
-    db.refresh(user_msg)
+    db.add(user_msg); db.commit(); db.refresh(user_msg)
 
-    # ── Fetch previous messages for multi‑turn context ──
-    previous_msgs = db.query(ChatMessage).filter(
+    prev = db.query(ChatMessage).filter(
         ChatMessage.session_id == session_id,
         ChatMessage.id < user_msg.id
     ).order_by(ChatMessage.timestamp.asc()).all()
-    history_for_llm = [{"role": m.role, "content": m.content} for m in previous_msgs]
+    hist = [{"role": m.role, "content": m.content} for m in prev]
 
-    # ── Generate AI response ──
     async with ai_queue:
-        ai_response = await run_in_threadpool(chat_agent.generate_response, enforced_prompt, history_for_llm)
+        ai_resp = await run_in_threadpool(chat_agent.generate_response, enforced_prompt, hist)
 
-    # ── Guardrails ──
-    if guard.is_destructive(ai_response):
-        ai_response = "🚨 SECURITY INTERVENTION: The AI generated a potentially destructive command. Output blocked."
-    elif guard.is_native_refusal(ai_response):
-        ai_response = "🚨 SECURITY EXCEPTION: This request violates AegisAI security guardrails. Incident has been logged."
+    if guard.is_destructive(ai_resp):
+        ai_resp = "🚨 Destructive command blocked."
+    elif guard.is_native_refusal(ai_resp):
+        ai_resp = "🚨 Security exception logged."
 
-    ai_msg = ChatMessage(session_id=session_id, role="ai", content=ai_response)
-    db.add(ai_msg)
-    db.commit()
+    ai_msg = ChatMessage(session_id=session_id, role="ai", content=ai_resp)
+    db.add(ai_msg); db.commit()
 
-    # ── Return full history ──
+    try:
+        memory_store.add_message(current_user.id, session_id, "ai", ai_resp)
+    except: pass
+
     msgs = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.asc()).all()
-    chat_format, temp_user = [], ""
+    chat_fmt, tmp = [], ""
     for m in msgs:
-        if m.role == "user":
-            temp_user = m.content
-        else:
-            chat_format.append([temp_user, m.content])
-            temp_user = ""
-    if temp_user:
-        chat_format.append([temp_user, ""])
+        if m.role == "user": tmp = m.content
+        else: chat_fmt.append([tmp, m.content]); tmp = ""
+    if tmp: chat_fmt.append([tmp, ""])
 
-    return {"session_id": session_id, "history": chat_format}
+    return {"session_id": session_id, "history": chat_fmt, "sentiment": sentiment}
 
-# ── List sessions ─────────────────────────────────────
+# ── Streaming endpoint ────────────────────────────────
+@router.post("/chat/message/stream")
+async def send_chat_message_stream(
+    req: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if guard.is_prompt_injection(req.message):
+        raise HTTPException(status_code=400, detail="Security Exception")
+
+    safe_message, _ = guard.mask_pii(req.message)
+    security_context = guard.get_ollama_security_prompt()
+
+    memory_context = ""
+    try:
+        memories = memory_store.search_memories(current_user.id, safe_message, top_k=2)
+        if memories:
+            memory_parts = [m['content'][:200] for m in memories if m['similarity'] > 0.3]
+            if memory_parts:
+                memory_context = "[LONG-TERM MEMORY]\n" + "\n".join(memory_parts) + "\n[/LONG-TERM MEMORY]"
+    except: pass
+
+    rag_context = ""
+    try:
+        from chroma_store import IncidentStore
+        store = IncidentStore()
+        results = store.search_similar(safe_message, top_k=5)
+        if results and results.get('ids') and results['ids'][0]:
+            parts = []
+            for i, iid in enumerate(results['ids'][0]):
+                inc = db.query(Incident).filter(Incident.id == int(iid)).first()
+                if inc:
+                    parts.append(f"#{inc.id}: {inc.root_cause or '?'} → {inc.remediation_action or '?'}")
+            if parts:
+                rag_context = "[PAST INCIDENTS]\n" + "\n".join(parts)
+    except: pass
+
+    from agents.sentiment import SentimentAnalyzer
+    sentiment = SentimentAnalyzer().analyze_message(safe_message)
+    esc = "\n[⚠️ USER FRUSTRATED]" if sentiment.get("needs_escalation") else ""
+
+    prompt_parts = [security_context, memory_context, rag_context, esc, f"User Request:\n{safe_message}"]
+    enforced_prompt = "\n\n".join([p for p in prompt_parts if p])
+
+    session_id = req.session_id
+    if not session_id:
+        title = safe_message[:40].strip() + ("..." if len(safe_message) > 40 else "")
+        new_session = ChatSession(user_id=current_user.id, title=title)
+        db.add(new_session); db.commit(); db.refresh(new_session)
+        session_id = new_session.id
+        clear_prefix("chat_sessions")
+
+    user_msg = ChatMessage(session_id=session_id, role="user", content=safe_message)
+    db.add(user_msg); db.commit(); db.refresh(user_msg)
+
+    prev = db.query(ChatMessage).filter(ChatMessage.session_id==session_id, ChatMessage.id<user_msg.id).order_by(ChatMessage.timestamp.asc()).all()
+    hist = [{"role":m.role,"content":m.content} for m in prev]
+
+    async def event_stream():
+        full = ""
+        async with ai_queue:
+            for token in chat_agent.generate_response_stream(enforced_prompt, hist):
+                full += token
+                yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"
+
+        if guard.is_destructive(full):
+            full = "🚨 Destructive command blocked."
+        elif guard.is_native_refusal(full):
+            full = "🚨 Security exception logged."
+
+        ai_msg = ChatMessage(session_id=session_id, role="ai", content=full)
+        db.add(ai_msg); db.commit()
+
+        try:
+            memory_store.add_message(current_user.id, session_id, "ai", full)
+        except: pass
+
+        yield f"data: {json.dumps({'done': True, 'session_id': session_id, 'sentiment': sentiment})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+# ── Sentiment endpoint ────────────────────────────────
+@router.post("/chat/analyze-sentiment")
+async def analyze_sentiment(
+    message: str = Query(...),
+    current_user: User = Depends(get_current_user)
+):
+    from agents.sentiment import SentimentAnalyzer
+    a = SentimentAnalyzer()
+    res = a.analyze_message(message)
+    return {"result": res, "html": a.render_sentiment_html(res, message)}
+
+# ── Model endpoints ───────────────────────────────────
+
+
+@router.get("/chat/models")
+async def get_available_models(current_user: User = Depends(get_current_user)):
+    models = [
+        {"id": "llama3", "name": "Llama 3", "icon": "🦙"},
+        {"id": "deepseek-r1:7b", "name": "DeepSeek R1", "icon": "🧠"},
+        {"id": "mistral:7b", "name": "Mistral 7B", "icon": "⚡"}
+    ]
+    try:
+        result = subprocess.run(
+            ["ollama", "list", "--format", "json"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            ollama_models = json.loads(result.stdout)
+            for m in ollama_models:
+                name = m.get("name", "")
+                if not name.startswith("aegis-sre-"):
+                    continue
+                parts = name.split("-")
+                if len(parts) >= 4:
+                    scope = parts[3]
+                    if scope == "all" and current_user.is_admin:
+                        models.append({"id": name, "name": f"🎯 {name} (Global)", "icon": "🎯"})
+                    elif scope.startswith("user_") and scope == f"user_{current_user.id}":
+                        models.append({"id": name, "name": f"🎯 My Custom Model", "icon": "🎯"})
+    except Exception:
+        pass
+    return {"models": models, "current": chat_agent.model}
+
+    
+
+
+@router.post("/chat/model/switch")
+async def switch_model(
+    req: ModelSwitchRequest,
+    current_user: User = Depends(get_current_user)
+):
+    if chat_agent.set_model(req.model):
+        return {"status": "success", "model": req.model}
+    return {"status": "error", "message": f"Model '{req.model}' not available"}
+
+# ── Sessions list (CACHED) ────────────────────────────
 @router.get("/chat/sessions")
+@cached("chat_sessions", ttl=30)
 async def get_chat_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -171,14 +301,12 @@ async def get_chat_sessions(
     ).order_by(ChatSession.created_at.desc()).all()
     result = {}
     for s in sessions:
-        title = s.title or "Untitled"
-        title = title.replace('\n', ' ').strip()
-        if len(title) > 50:
-            title = title[:47] + "..."
+        title = (s.title or "Untitled").replace('\n', ' ').strip()
+        if len(title) > 50: title = title[:47] + "..."
         result[str(s.id)] = title
     return result
 
-# ── Get session history ───────────────────────────────
+# ── Session history ───────────────────────────────────
 @router.get("/chat/sessions/{session_id}")
 async def get_chat_history(
     session_id: int,
@@ -189,19 +317,15 @@ async def get_chat_history(
         ChatSession.id == session_id,
         ChatSession.user_id == current_user.id
     ).first()
-    if not session:
-        return []
+    if not session: return []
     msgs = db.query(ChatMessage).filter(
         ChatMessage.session_id == session_id
     ).order_by(ChatMessage.timestamp.asc()).all()
-    chat_format, temp_user = [], ""
+    chat_fmt, tmp = [], ""
     for m in msgs:
-        if m.role == "user":
-            temp_user = m.content
-        else:
-            chat_format.append([temp_user, m.content])
-            temp_user = ""
-    return chat_format
+        if m.role == "user": tmp = m.content
+        else: chat_fmt.append([tmp, m.content]); tmp = ""
+    return chat_fmt
 
 # ── Search chat history ───────────────────────────────
 @router.get("/chat/search")
@@ -212,16 +336,16 @@ async def search_chat_history(
 ):
     if not query or len(query.strip()) < 2:
         return {"results": []}
-    search_term = f"%{query.strip()}%"
-    messages = db.query(ChatMessage).join(ChatSession).filter(
+    term = f"%{query.strip()}%"
+    msgs = db.query(ChatMessage).join(ChatSession).filter(
         ChatSession.user_id == current_user.id,
-        ChatMessage.content.ilike(search_term)
+        ChatMessage.content.ilike(term)
     ).order_by(ChatMessage.timestamp.desc()).limit(20).all()
 
     results = []
-    for msg in messages:
-        session = db.query(ChatSession).filter(ChatSession.id == msg.session_id).first()
-        session_title = session.title if session else "Unknown Session"
+    for msg in msgs:
+        sess = db.query(ChatSession).filter(ChatSession.id == msg.session_id).first()
+        stitle = sess.title if sess else "Unknown"
         content = msg.content or ""
         idx = content.lower().find(query.strip().lower())
         if idx >= 0:
@@ -231,12 +355,9 @@ async def search_chat_history(
         else:
             snippet = content[:100]
         results.append({
-            "session_id": msg.session_id,
-            "session_title": session_title[:50],
-            "message_id": msg.id,
-            "role": msg.role.upper(),
-            "snippet": snippet,
-            "timestamp": msg.timestamp.strftime("%Y-%m-%d %H:%M"),
+            "session_id": msg.session_id, "session_title": stitle[:50],
+            "message_id": msg.id, "role": msg.role.upper(),
+            "snippet": snippet, "timestamp": msg.timestamp.strftime("%Y-%m-%d %H:%M"),
             "full_content": content[:200]
         })
     return {"results": results, "query": query.strip()}
@@ -257,6 +378,9 @@ async def delete_chat_session(
     db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()
     db.delete(session)
     db.commit()
+    
+    log_action(db, current_user, "chat_deleted", resource_type="chat_session", resource_id=session_id)
+    clear_prefix("chat_sessions")
 
     from routers.notifications import create_notification
     if session.user_id != current_user.id:
@@ -289,9 +413,18 @@ async def rename_chat_session(
         raise HTTPException(status_code=400, detail="Title must be 1-100 characters")
     session.title = new_title
     db.commit()
+    
+    log_action(db, current_user, "chat_renamed", resource_type="chat_session", resource_id=session_id, details=f"'{old_title}' → '{new_title}'")
+    clear_prefix("chat_sessions")
 
     from routers.notifications import create_notification
     create_notification(db, current_user.id, "chat_renamed",
                         "Chat session renamed",
                         f"Session '{old_title}' renamed to '{new_title}' (ID: {session_id}).")
     return {"status": "success", "new_title": new_title}
+
+# ── Clear long‑term memory ────────────────────────────
+@router.delete("/chat/memory")
+async def clear_memory(current_user: User = Depends(get_current_user)):
+    memory_store.clear_user_memory(current_user.id)
+    return {"status": "success", "message": "Memory cleared"}

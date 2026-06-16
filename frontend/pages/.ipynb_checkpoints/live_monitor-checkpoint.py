@@ -50,7 +50,7 @@ def build_live_monitor_tab(session_token):
         comp["chatbot"] = gr.Chatbot(label="Ask about the live stream", height=250)
         with gr.Row():
             comp["chat_input"] = gr.Textbox(placeholder="What's happening right now?", show_label=False, scale=4)
-            comp["chat_send"] = gr.Button("Send", variant="primary", scale=1)
+        comp["chat_send"] = gr.Button("Send", variant="primary", scale=1)
 
     return comp
 

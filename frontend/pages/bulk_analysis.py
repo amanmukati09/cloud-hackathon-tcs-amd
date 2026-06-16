@@ -155,6 +155,7 @@ class BulkAnalysisPage:
                               '<div class="stat-label">Anomalies</div></div>',
                         elem_classes="stat-card"
                     )
+                with gr.Row(elem_classes="stats-grid"):
                     comp["stat_incidents"] = gr.Markdown(
                         value='<div class="stat-card-inner" style="border-left: 3px solid #f59e0b;">'
                               '<div class="stat-icon">🚨</div>'

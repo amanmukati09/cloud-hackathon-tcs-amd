@@ -260,6 +260,88 @@ footer { display: none !important; }
 .kb-results-scroll::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.3); border-radius: 3px; }
 .kb-results-scroll::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.5); }
 .kb-results-scroll > div { padding-right: 4px; }
+
+/* ========== BUTTON CONSISTENCY ========== */
+.gr-button {
+    height: 36px !important;
+    min-height: 36px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    font-size: 0.82rem !important;
+    padding: 0 14px !important;
+}
+.gr-button[variant="primary"] {
+    font-weight: 600 !important;
+}
+.gr-button[variant="stop"] {
+    font-weight: 600 !important;
+}
+.gr-button[size="sm"] {
+    height: 30px !important;
+    min-height: 30px !important;
+    font-size: 0.75rem !important;
+    padding: 0 10px !important;
+}
+.gr-button[size="lg"] {
+    height: 44px !important;
+    min-height: 44px !important;
+    font-size: 0.9rem !important;
+    padding: 0 20px !important;
+}
+
+/* ========== DEMO BUTTON ========== */
+.demo-btn {
+    background: linear-gradient(135deg, #38bdf8, #8b5cf6) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 700 !important;
+    animation: demo-pulse 2s infinite;
+}
+@keyframes demo-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(56,189,248,0); }
+}
+
+/* ========== LIVE MONITOR BADGES ========== */
+.badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+}
+.badge.active { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.badge.inactive { background: rgba(100,116,139,0.15); color: #64748b; border: 1px solid rgba(100,116,139,0.3); }
+
+/* ========== LIVE LOG STREAM ========== */
+.live-log {
+    background: #0d1117 !important;
+    border-radius: 12px !important;
+    padding: 14px !important;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+    font-size: 0.8rem !important;
+    line-height: 1.6 !important;
+    max-height: 450px !important;
+    overflow-y: auto !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+}
+.live-log span { display: block; white-space: pre-wrap; word-break: break-all; }
+.live-log::-webkit-scrollbar { width: 4px; }
+.live-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+/* ========== STAT CARD ========== */
+.stat-card-inner {
+    padding: 12px !important;
+    background: rgba(15, 23, 42, 0.6) !important;
+    border-radius: 10px !important;
+    text-align: center !important;
+}
+.stat-icon { font-size: 1.3rem !important; margin-bottom: 2px !important; }
+.stat-value { font-size: 1.6rem !important; font-weight: 800 !important; line-height: 1.2 !important; }
+.stat-label { font-size: 0.7rem !important; color: #64748b !important; font-weight: 500 !important; text-transform: uppercase !important; }
+
+
 """
 
 # At the bottom of your custom_css string, add:

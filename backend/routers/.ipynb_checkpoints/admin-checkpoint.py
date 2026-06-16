@@ -6,75 +6,151 @@ from pydantic import BaseModel
 from typing import Optional
 import re
 import pandas as pd
-
-from models import get_db, User, Incident, ChatSession, ChatMessage, EscalationTicket
+from models import get_db, User, Incident, ChatSession, ChatMessage, EscalationTicket, CommunityPost
 from auth import get_current_user
+from cache import cached, clear_prefix
+from fastapi import Request
+import time
+from cache import _redis
+from datetime import datetime, timedelta
+
+# In-memory cache for knowledge base (regenerated on demand)
+_kb_cache = {
+    "articles": [],
+    "generated_at": None,
+    "count": 0
+}
+
 
 router = APIRouter()
 
-# ── Metrics ───────────────────────────────────────────
+# ── Metrics (cached) ─────────────────────────────────
 @router.get("/admin/metrics")
+@cached("admin_metrics", ttl=60)
 async def get_admin_metrics(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    days: int = 30,
+    severity: str = "ALL"
 ):
+    """Get filtered metrics for admin dashboard."""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    
+    # Base queries
+    query = db.query(Incident)
+    if days > 0:
+        query = query.filter(Incident.timestamp >= cutoff)
+    if severity and severity != "ALL":
+        query = query.filter(Incident.anomaly_description.ilike(f"%Severity: {severity}%"))
+    
+    total_incidents = query.count()
+    resolved = query.filter(Incident.status == "resolved").count()
+    open_count = query.filter(Incident.status == "open").count()
+    critical = query.filter(Incident.anomaly_description.ilike("%CRITICAL%")).count()
+    
     return {
         "users": db.query(User).count(),
-        "incidents": db.query(Incident).count(),
-        "chats": db.query(ChatSession).count()
+        "incidents": total_incidents,
+        "chats": db.query(ChatSession).count(),
+        "resolved": resolved,
+        "open": open_count,
+        "critical": critical,
+        "resolution_rate": round(resolved / total_incidents * 100, 1) if total_incidents > 0 else 0
     }
 
+    
 # ── Analytics data ────────────────────────────────────
 @router.get("/admin/analytics/data")
 async def get_analytics_data(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    days: int = 30,
+    severity: str = "ALL"
 ):
+    """Fetches filtered incident data for the Analytics Dashboard."""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    incidents = db.query(Incident).all()
+    
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    
+    query = db.query(Incident).filter(Incident.timestamp >= cutoff)
+    if severity and severity != "ALL":
+        query = query.filter(Incident.anomaly_description.ilike(f"%Severity: {severity}%"))
+    
+    incidents = query.order_by(Incident.timestamp.desc()).all()
+    
     return [{
         "date": i.timestamp.strftime("%Y-%m-%d"),
         "status": i.status,
         "description": i.anomaly_description
     } for i in incidents]
 
+    
+
 # ── Enhanced analytics ────────────────────────────────
 @router.get("/admin/analytics/enhanced")
 async def get_enhanced_analytics(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    days: int = 30,
+    severity: str = "ALL"
 ):
+    """Enhanced analytics with trends, components, and MTTR by severity."""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-
-    incidents = db.query(Incident).all()
+    
+    from datetime import timedelta
+    
+    # Apply filters
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    query = db.query(Incident).filter(Incident.timestamp >= cutoff)
+    if severity and severity != "ALL":
+        query = query.filter(Incident.anomaly_description.ilike(f"%Severity: {severity}%"))
+    
+    incidents = query.all()
+    
     if not incidents:
-        return {"trend": [], "components": [], "mttr_by_severity": [], "heatmap": []}
-
+        return {
+            "trend": [],
+            "components": [],
+            "mttr_by_severity": [],
+            "heatmap": [],
+            "total_filtered": 0,
+            "period": f"Last {days} days",
+            "severity_filter": severity
+        }
+    
+    # Convert to DataFrame
     data = []
     for inc in incidents:
         severity_match = re.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
         component_match = re.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
-        severity = severity_match.group(1) if severity_match else "UNKNOWN"
-        component = component_match.group(1).strip() if component_match else "Unknown"
+        
+        sev = severity_match.group(1) if severity_match else "UNKNOWN"
+        comp = component_match.group(1).strip() if component_match else "Unknown"
+        
         resolution_hours = None
         if inc.resolved_at and inc.status == "resolved":
             resolution_hours = (inc.resolved_at - inc.timestamp).total_seconds() / 3600
+        
         data.append({
             "date": inc.timestamp.strftime("%Y-%m-%d"),
             "hour": inc.timestamp.hour,
             "weekday": inc.timestamp.strftime("%A"),
-            "severity": severity,
-            "component": component,
+            "severity": sev,
+            "component": comp,
             "status": inc.status,
             "resolution_hours": resolution_hours
         })
-
+    
     df = pd.DataFrame(data)
-
+    
+    # 1. 7-Day Rolling Average Trend
     daily = df.groupby('date').size().reset_index(name='count')
     daily['date'] = pd.to_datetime(daily['date'])
     daily = daily.sort_values('date')
@@ -82,51 +158,138 @@ async def get_enhanced_analytics(
     trend_data = daily[['date', 'count', 'rolling_avg']].tail(30).to_dict('records')
     for item in trend_data:
         item['date'] = item['date'].strftime("%Y-%m-%d")
-
+    
+    # 2. Top Affected Components
     components = df.groupby('component').size().reset_index(name='incidents')
     components = components.sort_values('incidents', ascending=False).head(8)
     component_data = components.to_dict('records')
-
+    
+    # 3. MTTR by Severity
     resolved = df[df['resolution_hours'].notna()]
-    mttr = resolved.groupby('severity')['resolution_hours'].agg(['mean', 'count']).round(1)
-    mttr = mttr.reset_index()
-    mttr.columns = ['severity', 'avg_hours', 'count']
-    mttr_data = mttr.to_dict('records')
-
+    mttr_data = []
+    if not resolved.empty:
+        mttr = resolved.groupby('severity')['resolution_hours'].agg(['mean', 'count']).round(1)
+        mttr = mttr.reset_index()
+        mttr.columns = ['severity', 'avg_hours', 'count']
+        mttr_data = mttr.to_dict('records')
+    
+    # 4. Heatmap (Day of Week vs Hour)
     heatmap = df.groupby(['weekday', 'hour']).size().reset_index(name='incidents')
     heatmap_data = heatmap.to_dict('records')
-
+    
+    # 5. Severity Distribution
+    severity_dist = df.groupby('severity').size().reset_index(name='count')
+    severity_data = severity_dist.to_dict('records')
+    
+    # 6. Status Distribution
+    status_dist = df.groupby('status').size().reset_index(name='count')
+    status_data = status_dist.to_dict('records')
+    
     return {
         "trend": trend_data,
         "components": component_data,
         "mttr_by_severity": mttr_data,
-        "heatmap": heatmap_data
+        "heatmap": heatmap_data,
+        "severity_distribution": severity_data,
+        "status_distribution": status_data,
+        "total_filtered": len(incidents),
+        "period": f"Last {days} days",
+        "severity_filter": severity
     }
+
+    
+# ── Predictions ───────────────────────────────────────
+@router.get("/admin/predictions")
+async def get_incident_predictions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    from agents.predictor import IncidentPredictor
+    import re as regex
+    incidents = db.query(Incident).all()
+    if not incidents:
+        return {"predictions": [], "risk_level": "LOW", "summary": "No data"}
+    data = []
+    for inc in incidents:
+        sev = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        comp = regex.search(r'Component:\s*([^\n,]+)', inc.anomaly_description or "")
+        data.append({
+            "date": inc.timestamp.strftime("%Y-%m-%d"),
+            "hour": inc.timestamp.hour,
+            "weekday": inc.timestamp.strftime("%A"),
+            "severity": sev.group(1) if sev else "UNKNOWN",
+            "component": comp.group(1).strip() if comp else "Unknown",
+            "anomaly_type": inc.anomaly_description[:50] if inc.anomaly_description else "Unknown",
+            "status": inc.status
+        })
+    predictor = IncidentPredictor()
+    return predictor.analyze_patterns(data)
+
+# ── Clusters ──────────────────────────────────────────
+@router.get("/admin/clusters")
+async def get_incident_clusters(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    from agents.clustering import IncidentClusterer
+    import re as regex
+    incidents = db.query(Incident).order_by(Incident.timestamp.desc()).limit(200).all()
+    if not incidents:
+        return {"clusters": [], "summary": "No incidents"}
+    data = []
+    for inc in incidents:
+        sev = regex.search(r'Severity:\s*([A-Z]+)', inc.anomaly_description or "")
+        data.append({
+            "id": inc.id,
+            "anomaly_description": inc.anomaly_description or "",
+            "root_cause": inc.root_cause or "",
+            "severity": sev.group(1) if sev else "UNKNOWN",
+            "component": "Unknown",
+            "status": inc.status,
+            "date": inc.timestamp.strftime("%Y-%m-%d")
+        })
+    clusterer = IncidentClusterer()
+    clusters = clusterer.cluster_incidents(data)
+    html = clusterer.render_clusters_html(clusters)
+    return {"clusters": clusters, "html": html}
 
 # ── User list ─────────────────────────────────────────
 @router.get("/admin/users")
 async def get_all_users(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    limit: int = 100
+    limit: int = 50
 ):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access Denied.")
-    users = db.query(User).limit(limit).all()
+    from sqlalchemy import func
+    users = db.query(
+        User.id, User.full_name, User.email, User.is_admin, User.created_at,
+        func.count(Incident.id).label('incident_count'),
+        func.count(ChatSession.id).label('chat_count')
+    ).outerjoin(Incident, Incident.user_id == User.id
+    ).outerjoin(ChatSession, ChatSession.user_id == User.id
+    ).group_by(User.id
+    ).order_by(User.created_at.desc()
+    ).limit(limit).all()
     result = []
     for u in users:
         result.append({
             "User ID": u.id,
             "Full Name": u.full_name,
             "Email": u.email,
-            "Role": "🛡️ ROOT" if u.is_admin else "👤 User",
-            "Incidents Logged": db.query(Incident).filter(Incident.user_id == u.id).count(),
-            "AI Chats": db.query(ChatSession).filter(ChatSession.user_id == u.id).count(),
-            "Joined Date": u.created_at.strftime("%Y-%m-%d")
+            "Role": "Admin" if u.is_admin else "User",
+            "Incidents": u.incident_count,
+            "Chats": u.chat_count,
+            "Joined": u.created_at.strftime("%Y-%m-%d") if u.created_at else ""
         })
     return result
 
-# ── Check user exists ─────────────────────────────────
+# ── User exists ───────────────────────────────────────
 @router.get("/admin/users/{target_id}/exists")
 async def user_exists(
     target_id: int,
@@ -154,6 +317,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found.")
     db.delete(target)
     db.commit()
+    clear_prefix("admin_metrics")
     return {"status": "success", "message": f"User {target_id} purged."}
 
 # ── User incidents (admin) ────────────────────────────
@@ -167,12 +331,9 @@ async def get_user_incidents_admin(
         raise HTTPException(status_code=403, detail="Access Denied.")
     incidents = db.query(Incident).filter(Incident.user_id == target_id).order_by(Incident.timestamp.desc()).all()
     return [{
-        "ID": i.id,
-        "Date": i.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "Raw Logs": i.raw_logs,
-        "Anomaly Found": i.anomaly_description,
-        "Root Cause": i.root_cause,
-        "Remediation": i.remediation_action,
+        "ID": i.id, "Date": i.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "Raw Logs": i.raw_logs, "Anomaly Found": i.anomaly_description,
+        "Root Cause": i.root_cause, "Remediation": i.remediation_action,
         "Status": i.status
     } for i in incidents]
 
@@ -189,10 +350,8 @@ async def get_user_chats_admin(
         ChatSession.user_id == target_id
     ).order_by(ChatSession.id.desc(), ChatMessage.timestamp.asc()).all()
     return [{
-        "Session ID": m.session_id,
-        "Time": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "Role": m.role.upper(),
-        "Message Content": m.content
+        "Session ID": m.session_id, "Time": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "Role": m.role.upper(), "Message Content": m.content
     } for m in messages]
 
 # ── Escalations (admin) ───────────────────────────────
@@ -219,8 +378,7 @@ async def get_all_escalations(
 
 @router.post("/admin/escalations/{ticket_id}/answer")
 async def answer_escalation(
-    ticket_id: int,
-    payload: TicketAnswer,
+    ticket_id: int, payload: TicketAnswer,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -232,7 +390,6 @@ async def answer_escalation(
     ticket.answer = payload.answer
     ticket.status = "resolved"
     db.commit()
-
     from routers.notifications import create_notification
     ticket_owner = db.query(User).filter(User.id == ticket.user_id).first()
     if ticket_owner:
@@ -268,9 +425,301 @@ async def get_my_escalations(
         EscalationTicket.user_id == current_user.id
     ).order_by(EscalationTicket.created_at.desc()).all()
     return [{
-        "Ticket ID": t.id,
-        "Date": t.created_at.strftime("%Y-%m-%d %H:%M"),
-        "Question": t.question,
-        "Admin Answer": t.answer or "⏳ Pending Review...",
+        "Ticket ID": t.id, "Date": t.created_at.strftime("%Y-%m-%d %H:%M"),
+        "Question": t.question, "Admin Answer": t.answer or "⏳ Pending Review...",
         "Status": "🟢 OPEN" if t.status == "open" else "✅ RESOLVED"
     } for t in tickets]
+
+# ── Alert configuration ───────────────────────────────
+class AlertConfigRequest(BaseModel):
+    slack_webhook: Optional[str] = None
+    teams_webhook: Optional[str] = None
+    pagerduty_key: Optional[str] = None
+    opsgenie_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: Optional[str] = None
+    alert_emails: Optional[str] = None  # comma-separated
+
+@router.post("/admin/alerts/configure")
+async def configure_alerts(
+    config: AlertConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    from agents.alerting import AlertManager
+    mgr = AlertManager()
+    
+    smtp_config = {}
+    if config.smtp_host: smtp_config["host"] = config.smtp_host
+    if config.smtp_port: smtp_config["port"] = config.smtp_port
+    if config.smtp_username: smtp_config["username"] = config.smtp_username
+    if config.smtp_password: smtp_config["password"] = config.smtp_password
+    if config.smtp_from: smtp_config["from_email"] = config.smtp_from
+    if config.alert_emails: smtp_config["to_emails"] = [e.strip() for e in config.alert_emails.split(",") if e.strip()]
+    
+    mgr.configure(
+        slack_url=config.slack_webhook,
+        teams_url=config.teams_webhook,
+        pagerduty_key=config.pagerduty_key,
+        opsgenie_key=config.opsgenie_key,
+        smtp_config=smtp_config if smtp_config else None
+    )
+    
+    return {"status": "success", "message": "Alert configuration updated"}
+    
+
+@router.post("/admin/alerts/test")
+async def test_alert(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    from agents.alerting import AlertManager
+    mgr = AlertManager()
+    test_data = {"id": "TEST", "anomaly_type": "Test", "severity": "LOW",
+                 "affected_component": "Alert", "description": "Test alert",
+                 "root_cause": "Testing", "remediation": "None", "timestamp": "Now"}
+    return {"status": "success", "results": mgr.send_incident_alert(test_data)}
+
+
+    
+@router.get("/admin/rate-limit-status")
+async def rate_limit_status(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Get current rate limit status for the user."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    user_id = request.headers.get("authorization", request.client.host)
+    key = f"rate_limit:{user_id}:{int(time.time() / 60)}"
+    current = _redis.get(key)
+    
+    return {
+        "current": int(current) if current else 0,
+        "limit": 60,
+        "window": "1 minute"
+    }
+
+@router.post("/admin/knowledge-base/generate")
+async def generate_knowledge_base(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate knowledge base from all resolved incidents."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access Denied.")
+    
+    incidents = db.query(Incident).filter(Incident.status == "resolved").order_by(Incident.timestamp.desc()).limit(50).all()
+    
+    if not incidents:
+        return {"articles": [], "message": "No resolved incidents found"}
+    
+    from agents.knowledge_base import KnowledgeBaseAgent
+    agent = KnowledgeBaseAgent()
+    
+    incident_data = [{
+        "id": i.id,
+        "anomaly_description": i.anomaly_description or "",
+        "root_cause": i.root_cause or "",
+        "remediation": i.remediation_action or "",
+        "resolution_notes": i.resolution_notes or "",
+        "status": i.status
+    } for i in incidents]
+    
+    articles = agent.generate_from_all_resolved(incident_data)
+    
+    # Store in cache
+    _kb_cache["articles"] = articles
+    _kb_cache["generated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _kb_cache["count"] = len(articles)
+    
+    return {
+        "articles": articles,
+        "count": len(articles),
+        "message": f"Generated {len(articles)} articles from {len(incidents)} resolved incidents"
+    }
+
+    
+
+@router.get("/admin/knowledge-base/search")
+async def search_knowledge_base(
+    query: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search the knowledge base (uses cached articles)."""
+    if not query or len(query.strip()) < 2:
+        return {"articles": [], "query": query}
+    
+    # Use cached articles if available, otherwise generate
+    articles = _kb_cache.get("articles", [])
+    
+    if not articles:
+        # Quick generation if cache is empty
+        incidents = db.query(Incident).filter(Incident.status == "resolved").limit(20).all()
+        if not incidents:
+            return {"articles": [], "query": query}
+        
+        from agents.knowledge_base import KnowledgeBaseAgent
+        agent = KnowledgeBaseAgent()
+        
+        incident_data = [{
+            "id": i.id,
+            "anomaly_description": i.anomaly_description or "",
+            "root_cause": i.root_cause or "",
+            "remediation": i.remediation_action or "",
+            "status": i.status
+        } for i in incidents]
+        
+        articles = agent.generate_from_all_resolved(incident_data)
+        _kb_cache["articles"] = articles
+    
+    # Simple keyword search (fast, no LLM call)
+    query_lower = query.lower()
+    scored = []
+    
+    for article in articles:
+        score = 0
+        text = f"{article.get('title','')} {article.get('symptoms','')} {article.get('root_cause','')} {article.get('solution','')} {' '.join(article.get('tags',[]))}"
+        text_lower = text.lower()
+        
+        for word in query_lower.split():
+            score += text_lower.count(word)
+        
+        if score > 0:
+            scored.append((score, article))
+    
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results = [article for _, article in scored[:5]]
+    
+    return {"articles": results, "query": query, "count": len(results)}
+
+@router.get("/gamification/stats")
+async def get_gamification_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's gamification stats."""
+    from agents.gamification import GamificationEngine
+    
+    engine = GamificationEngine()
+    
+    # Calculate stats
+    stats = {
+        "incidents_created": db.query(Incident).filter(Incident.user_id == current_user.id).count(),
+        "incidents_resolved": db.query(Incident).filter(
+            Incident.user_id == current_user.id,
+            Incident.status == "resolved"
+        ).count(),
+        "chat_messages": db.query(ChatMessage).join(ChatSession).filter(
+            ChatSession.user_id == current_user.id
+        ).count(),
+        "community_posts": db.query(CommunityPost).filter(
+            CommunityPost.user_id == current_user.id
+        ).count(),
+        "tickets_answered": 0,  # Simplified for now
+        "kb_articles": 0,
+        "is_admin": current_user.is_admin,
+        "night_activity": False,
+        "fastest_resolution_hours": 999
+    }
+    
+    # Calculate fastest resolution
+    resolved = db.query(Incident).filter(
+        Incident.user_id == current_user.id,
+        Incident.status == "resolved",
+        Incident.resolved_at != None
+    ).all()
+    
+    for inc in resolved:
+        hours = (inc.resolved_at - inc.timestamp).total_seconds() / 3600
+        if hours < stats["fastest_resolution_hours"]:
+            stats["fastest_resolution_hours"] = hours
+    
+    # Calculate total points
+    points = 0
+    points += stats["incidents_created"] * engine.POINTS["incident_created"]
+    points += stats["incidents_resolved"] * engine.POINTS["incident_resolved"]
+    points += stats["chat_messages"] * engine.POINTS["chat_message"]
+    points += stats["community_posts"] * engine.POINTS["community_post"]
+    points += stats.get("fastest_resolution_hours", 999) < 1 and engine.POINTS["incident_resolved_fast"] or 0
+    
+    level_info = engine.calculate_level(points)
+    badges = engine.check_badges(stats)
+    
+    return {
+        "points": points,
+        "level": level_info,
+        "badges": badges,
+        "stats": stats
+    }
+
+@router.get("/gamification/leaderboard")
+async def get_leaderboard(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the leaderboard."""
+    from agents.gamification import GamificationEngine
+    
+    engine = GamificationEngine()
+    
+    # Get all users with their stats
+    users = db.query(User).all()
+    user_scores = []
+    
+    for user in users:
+        incidents = db.query(Incident).filter(Incident.user_id == user.id).count()
+        resolved = db.query(Incident).filter(
+            Incident.user_id == user.id,
+            Incident.status == "resolved"
+        ).count()
+        chats = db.query(ChatMessage).join(ChatSession).filter(
+            ChatSession.user_id == user.id
+        ).count()
+        posts = db.query(CommunityPost).filter(
+            CommunityPost.user_id == user.id
+        ).count()
+        
+        points = (incidents * 10) + (resolved * 50) + (chats * 2) + (posts * 15)
+        
+        user_scores.append({
+            "email": user.email,
+            "points": points,
+            "level": (points // 100) + 1,
+            "incidents": incidents,
+            "resolved": resolved
+        })
+    
+    leaderboard = engine.get_leaderboard(user_scores)
+    
+    return {"leaderboard": leaderboard}
+
+@router.get("/admin/health-score")
+async def get_health_score(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403)
+    from agents.health_scorer import health_scorer
+    return health_scorer.calculate(db)
+
+@router.get("/admin/benchmark")
+async def get_benchmark(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403)
+    from agents.benchmark import benchmark
+    return benchmark.calculate(db)

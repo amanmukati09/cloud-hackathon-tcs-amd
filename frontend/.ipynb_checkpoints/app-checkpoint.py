@@ -334,7 +334,6 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             outputs=[sql_runner["query_input"], sql_runner["query_result"], sql_runner["confirm_checkbox"]]
                         )
                         
-
         # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
             # LIVE DIAGNOSIS
@@ -357,7 +356,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             clear_btn = gr.Button("Clear", variant="stop")
                         with gr.Row():
                             discuss_btn = gr.Button("Discuss with AI", variant="secondary")
-                            search_similar_btn = gr.Button("Find Similar Incidents", variant="secondary")
+                            search_similar_btn = gr.Button("Find Similar", variant="secondary")
                             async_diagnose_btn = gr.Button("Async Analyze", variant="secondary")
                         gr.Examples(examples=[
                             ["[ERROR] nginx worker crashed\n[WARNING] memory: 90%\n[ERROR] cpu: 95%"],
@@ -411,7 +410,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             image_upload = gr.File(file_count="single", label="Select image file", elem_classes="image-upload-area")
                         with gr.Row(elem_classes="image-action-row"):
                             analyze_image_btn = gr.Button("🔍 Analyze Image", variant="primary", scale=3)
-                            clear_image_btn = gr.Button("Clear", variant="stop", size="sm", scale=1)
+                            clear_image_btn = gr.Button("Clear", variant="stop", scale=3)
                         image_result = gr.HTML(value="")
                     
                     with gr.Column(scale=1, elem_classes="glass-card"):
@@ -420,8 +419,8 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         gr.Markdown("---")
                         gr.Markdown("### ⚡ Actions")
                         with gr.Row():
-                            send_to_chat_btn = gr.Button("💬 Discuss with Copilot", variant="secondary", size="sm")
-                            extract_to_logs_btn = gr.Button("📄 Use as Log Input", variant="secondary", size="sm")
+                            send_to_chat_btn = gr.Button("💬 Discuss with Copilot", variant="secondary")
+                            extract_to_logs_btn = gr.Button("📄 Use as Log Input", variant="secondary")
                         image_action_status = gr.Markdown("")
 
             # AI COPILOT
@@ -449,7 +448,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             new_chat_btn = gr.Button("New Chat", variant="primary", size="sm")
                         with gr.Row():
                             rename_chat_input = gr.Textbox(label="Rename", placeholder="New title...", scale=3)
-                            rename_chat_btn = gr.Button("Rename", variant="secondary", size="sm", scale=1)
+                            rename_chat_btn = gr.Button("Rename", variant="secondary", size="sm", scale=3)
                         delete_chat_btn = gr.Button("Delete Current Chat", variant="stop", size="sm")
                         gr.Markdown("---")
                         gr.Markdown("### Search Messages")
@@ -465,7 +464,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         chatbot_ui = gr.Chatbot(label="Aegis AI Copilot", height=400)
                         with gr.Row():
                             chat_input = gr.Textbox(show_label=False, placeholder="Ask anything...", scale=4, lines=1, max_lines=4)
-                            chat_send_btn = gr.Button("Send", variant="primary", scale=1)
+                        chat_send_btn = gr.Button("Send", variant="primary", scale=4, size="lg")
                         sentiment_output = gr.HTML(value="")
 
             # INCIDENT HISTORY
@@ -528,13 +527,13 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
 
             # COMMUNITY
             with gr.Tab("Community"):
-                with gr.Row():
+                with gr.Row(equal_height=True):
                     with gr.Column(scale=2, elem_classes="glass-card"):
                         gr.Markdown("### Feed")
                         community_posts_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll community-feed", label="Posts")
                         with gr.Row():
                             new_post_input = gr.Textbox(label="Share", lines=2, placeholder="What's on your mind?")
-                            post_btn = gr.Button("Post", variant="primary")
+                        post_btn = gr.Button("Post", variant="primary")
                         with gr.Row():
                             refresh_posts_btn = gr.Button("Refresh", variant="secondary")
                             like_post_btn = gr.Button("Like", variant="secondary")
@@ -544,14 +543,15 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         community_comments_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="short-table community-comments", label="Comments")
                         with gr.Row():
                             new_comment_input = gr.Textbox(label="Reply", lines=1, placeholder="Write a reply...")
-                            comment_btn = gr.Button("Reply", variant="primary")
+                        comment_btn = gr.Button("Reply", variant="primary")
+                        
                         with gr.Row():
                             like_comment_btn = gr.Button("Like", variant="secondary")
                             delete_comment_btn = gr.Button("Delete", variant="stop")
 
             # WORKSPACES
             with gr.Tab("Workspaces"):
-                with gr.Row():
+                with gr.Row(equal_height=True):
                     with gr.Column(scale=1, elem_classes="glass-card"):
                         gr.Markdown("### Your Workspaces")
                         workspaces_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll", label="Workspaces")
@@ -569,12 +569,12 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         gr.Markdown("### Add Member")
                         with gr.Row():
                             add_member_id_input = gr.Number(label="User ID", precision=0, scale=2)
-                            add_member_btn = gr.Button("Add", variant="primary", scale=1)
+                        add_member_btn = gr.Button("Add", variant="primary", scale=2)
                         add_member_status = gr.Markdown("")
 
             # API KEYS
             with gr.Tab("API Keys"):
-                with gr.Row():
+                with gr.Row(equal_height=True):
                     with gr.Column(scale=2, elem_classes="glass-card"):
                         gr.Markdown("### Your API Keys")
                         api_keys_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll", label="Keys")
@@ -614,13 +614,13 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                         kb_articles_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll", label="Generated Articles")
                     with gr.Column(scale=2, elem_classes="glass-card"):
                         gr.Markdown("### Search Knowledge Base")
-                        with gr.Row():
+                        with gr.Row(equal_height=True):
                             kb_search_input = gr.Textbox(placeholder="Search for solutions...", show_label=False, scale=4)
                             kb_search_btn = gr.Button("Search", variant="primary", scale=1)
                         kb_results = gr.HTML(value="<p style='color:#94a3b8;text-align:center;padding:20px;'>Generate articles first, then search</p>", elem_classes="kb-results-scroll")
 
             # NOTIFICATIONS
-            with gr.Tab("Notifications"):
+            with gr.Tab("🔔Notifications"):
                 with gr.Column(elem_classes="glass-card"):
                     with gr.Row():
                         gr.Markdown("### Recent Notifications", scale=4)
@@ -1031,7 +1031,7 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
     chat_search_results.select(fn=on_search_click, inputs=[session_token], outputs=[chatbot_ui,current_chat_id,chat_session_dropdown])
 
     refresh_admin_btn.click(fn=load_admin_data, inputs=[session_token, dashboard_days, dashboard_severity],
-                           outputs=[metric_users,metric_incidents,metric_chats,admin_users_table]
+                       outputs=[metric_users,metric_incidents,metric_chats,metric_resolved,gr.State(),gr.State(),admin_users_table]
     ).then(fn=fetch_analytics, inputs=[session_token, dashboard_days, dashboard_severity],
            outputs=[dashboard_timeline,dashboard_severity_chart,dashboard_status_chart]
     ).then(fn=fetch_predictions, inputs=[session_token], outputs=[predictions_output]

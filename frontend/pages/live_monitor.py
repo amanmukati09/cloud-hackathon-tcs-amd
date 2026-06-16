@@ -16,6 +16,7 @@ def build_live_monitor_tab(session_token):
 
         with gr.Row():
             comp["source_selector"] = gr.Dropdown(label="Source", choices=["default"], value="default", scale=3)
+        with gr.Row():
             comp["start_btn"] = gr.Button("▶️ Start", variant="primary", scale=1)
             comp["stop_btn"] = gr.Button("⏹️ Stop", variant="stop", scale=1)
             comp["refresh_btn"] = gr.Button("🔄 Refresh", variant="secondary", scale=1)
@@ -50,7 +51,7 @@ def build_live_monitor_tab(session_token):
         comp["chatbot"] = gr.Chatbot(label="Ask about the live stream", height=250)
         with gr.Row():
             comp["chat_input"] = gr.Textbox(placeholder="What's happening right now?", show_label=False, scale=4)
-            comp["chat_send"] = gr.Button("Send", variant="primary", scale=1)
+        comp["chat_send"] = gr.Button("Send", variant="primary", scale=1)
 
     return comp
 
