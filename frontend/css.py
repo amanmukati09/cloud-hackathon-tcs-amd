@@ -38,6 +38,13 @@ footer { display: none !important; }
     max-width: 400px !important;
 }
 
+.sql-editor textarea {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+    background: #0d1117 !important;
+    color: #e6edf3 !important;
+    font-size: 0.8rem !important;
+}
+
 
 /* ========== UPLOAD BOX ========== */
 .upload-box {

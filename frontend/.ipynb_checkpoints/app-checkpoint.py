@@ -51,14 +51,12 @@ from pages.model_training import (
 from pages.dependency_graph import (
     build_dependency_tab, fetch_dependency_graph, handle_node_select
 )
-
 from pages.smart_analytics import build_analytics_tab, ask_question, ask_preset
 
-
+from pages.sql_runner import build_sql_runner_tab, fetch_tables, execute_query, execute_danger
 from pages.live_monitor import build_live_monitor_tab, refresh_dashboard, send_chat
 from pages.demo_tour import start_demo, skip_demo, get_demo_html, DEMO_STEPS
-
-
+from pages.rl_triage import build_rl_tab, fetch_queue, train_agent
 
 # PWA Head HTML (unchanged)
 pwa_head = """
@@ -303,6 +301,39 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                             gr.Markdown("### Recent Activity Logs", scale=4)
                             refresh_audit_btn = gr.Button("Refresh", variant="secondary", scale=1)
                         audit_logs_table = gr.Dataframe(interactive=False, wrap=True, elem_classes="table-scroll")
+
+                with gr.Tab("🏃 SQL Runner"):
+                    with gr.Column(elem_classes="glass-card"):
+                        sql_runner = build_sql_runner_tab(session_token)
+                        
+                        sql_runner["refresh_tables_btn"].click(
+                            fn=fetch_tables, inputs=[session_token], 
+                            outputs=[sql_runner["tables_list"], sql_runner["schema_info"]]
+                        )
+                        
+                        sql_runner["execute_btn"].click(
+                            fn=lambda q, t: execute_query(q, t, False), 
+                            inputs=[sql_runner["query_input"], session_token], 
+                            outputs=[sql_runner["query_result"], sql_runner["confirm_checkbox"]]
+                        )
+                        
+                        sql_runner["execute_danger_btn"].click(
+                            fn=execute_danger,
+                            inputs=[sql_runner["query_input"], session_token],
+                            outputs=[sql_runner["confirm_checkbox"], sql_runner["query_result"]]
+                        )
+                        
+                        sql_runner["confirm_checkbox"].change(
+                            fn=lambda q, t: execute_query(q, t, True),
+                            inputs=[sql_runner["query_input"], session_token],
+                            outputs=[sql_runner["query_result"], sql_runner["confirm_checkbox"]]
+                        )
+                        
+                        sql_runner["clear_btn"].click(
+                            fn=lambda: ("", "<div style='color:#64748b;text-align:center;padding:20px;'>Cleared</div>", gr.update(visible=False)),
+                            outputs=[sql_runner["query_input"], sql_runner["query_result"], sql_runner["confirm_checkbox"]]
+                        )
+                        
 
         # MAIN TABS
         with gr.Tabs(elem_id="main_tabs") as tabs_manager:
@@ -727,8 +758,22 @@ with gr.Blocks(title="AegisAI", head=pwa_head) as demo:
                     fn=handle_node_select,
                     inputs=[dep["node_selector"], session_token],
                     outputs=[dep["blast_output"]]
-                )          
+                )
 
+                    # ========== RL TRIAGE TAB ==========
+            with gr.Tab("🧠 RL Triage", id="tab_rl"):
+                rl = build_rl_tab(session_token)
+                rl["refresh_btn"].click(
+                    fn=fetch_queue, 
+                    inputs=[session_token], 
+                    outputs=[rl["queue_output"]]
+                )
+                rl["train_btn"].click(
+                    fn=train_agent, 
+                    inputs=[session_token], 
+                    outputs=[rl["stats_output"], rl["queue_output"]]
+                )
+        
             # ========== SMART ANALYTICS TAB ==========
             with gr.Tab("📊 Smart Analytics", id="tab_analytics"):
                 analytics = build_analytics_tab(session_token)

@@ -11,8 +11,10 @@ from routers import timeline
 from routers import bulk_pdf
 from routers import train
 from routers import dependency
+from routers import sql_runner
 from routers import analytics
 from routers import live_monitor
+from routers import rl_triage
 
 
 
@@ -58,6 +60,8 @@ app.include_router(train.router)
 app.include_router(dependency.router)
 app.include_router(analytics.router)
 app.include_router(live_monitor.router)
+app.include_router(sql_runner.router)
+app.include_router(rl_triage.router)
 
 
 
