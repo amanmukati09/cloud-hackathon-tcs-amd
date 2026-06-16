@@ -124,6 +124,8 @@ It combines a **multi‑agent LLM system**, **retrieval‑augmented generation (
                       │  • Analytics, Real-Time Monitoring & Triage  │
                       └──────────────────────────────────────────────┘
 
+```
+
 ## 🗂️ Project Structure
 
 cloud-hackathon-tcs-amd/

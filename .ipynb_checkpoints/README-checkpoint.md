@@ -76,51 +76,55 @@ It combines a **multi‑agent LLM system**, **retrieval‑augmented generation (
 
 ## 🏗️ Architecture
 
-┌──────────────────┐ ┌──────────────────────────────────────────────┐ ┌─────────────────────┐
-│ Log Sources │ │ FastAPI Backend │ │ Gradio Frontend │
-│ (files, APIs, │─────▶│ ┌──────────────────────────────────────────┐│─────▶│ (16 tabs) │
-│ simulators) │ │ │ AI Agent Pipeline ││ │ │
-└──────────────────┘ │ │ • Monitor Agent (anomaly detection) ││ └─────────────────────┘
-│ │ • Diagnosis Agent (root cause) ││
-│ │ • Remediation Agent (fix suggestions) ││
-│ │ • Alerting Agent (email/Slack/Teams) ││
-│ │ • Code‑Fix Agent (patch generation) ││
-│ │ • Sentiment Analyzer ││
-│ └───────────────┬──────────────────────────┘│
-│ │ │
-│ ┌───────────────▼──────────────────────────┐│
-│ │ RAG & Memory (ChromaDB) ││
-│ │ • Incident vector store ││
-│ │ • Chat long‑term memory ││
-│ └───────────────┬──────────────────────────┘│
-│ │ │
-│ ┌───────────────▼──────────────────────────┐│
-│ │ LLM Serving (Ollama) ││
-│ │ • Llama3‑8B (primary) ││
-│ │ • DeepSeek‑R1‑7B (SQL generation) ││
-│ │ • Mistral‑7B (alternative) ││
-│ │ • LLaVA‑7B (vision) ││
-│ │ • Fine‑tuned Aegis‑SRE (GGUF) ││
-│ └───────────────┬──────────────────────────┘│
-│ │ │
-│ ┌───────────────▼──────────────────────────┐│
-│ │ GPU Acceleration (AMD MI300X) ││
-│ │ • QLoRA fine‑tuning (Unsloth) ││
-│ │ • Batch embedding generation ││
-│ │ • Flash Attention ││
-│ │ • 192 GB HBM3 VRAM ││
-│ └──────────────────────────────────────────┘│
-│ │
-│ ┌──────────────────────────────────────────┐│
-│ │ Security & Infrastructure ││
-│ │ • Guardrails (PII, injection, commands) ││
-│ │ • Rate Limiter (Redis) ││
-│ │ • JWT Auth + RBAC ││
-│ │ • Audit Logger ││
-│ │ • Background Workers (Celery) ││
-│ └──────────────────────────────────────────┘│
-└──────────────────────────────────────────────┘
+```text
+ [ Log Sources ] ───> ┌──────────────────────────────────────────────┐
+ (Files, APIs,        │               FastAPI Backend                │
+  Simulators)         │ ┌──────────────────────────────────────────┐ │
+                      │ │  AI Agent Pipeline                       │ │
+                      │ │  • Monitor Agent (Anomaly Detection)     │ │
+                      │ │  • Diagnosis Agent (Root Cause Analysis) │ │
+                      │ │  • Remediation Agent (Fix Suggestions)   │ │
+                      │ │  • Alerting Agent (Slack/Teams/Email)    │ │
+                      │ │  • Code-Fix Agent (Patch Generation)     │ │
+                      │ │  • Sentiment Analyzer                    │ │
+                      │ └──────────────────────┬───────────────────┘ │
+                      │                        ▼                     │
+                      │ ┌──────────────────────────────────────────┐ │
+                      │ │  RAG & Memory (ChromaDB)                 │ │
+                      │ │  • Incident Vector Store                 │ │
+                      │ │  • Long-Term Context Memory Store        │ │
+                      │ └──────────────────────┬───────────────────┘ │
+                      │                        ▼                     │
+                      │ ┌──────────────────────────────────────────┐ │
+                      │ │  LLM Serving Engine (Ollama)             │ │
+                      │ │  • Llama3-8B (Primary Ops Core)          │ │
+                      │ │  • DeepSeek-R1-7B (Structured SQL Gen)   │ │
+                      │ │  • Mistral-7B & LLaVA-7B (Multimodal)    │ │
+                      │ └──────────────────────┬───────────────────┘ │
+                      │                        ▼                     │
+                      │ ┌──────────────────────────────────────────┐ │
+                      │ │  Hardware Acceleration (AMD MI300X)      │ │
+                      │ │  • 192 GB HBM3 Ultra-High Bandwidth VRAM │ │
+                      │ │  • Unsloth QLoRA Optimization Engine     │ │
+                      │ │  • Native Flash Attention Integration    │ │
+                      │ └──────────────────────┬───────────────────┘ │
+                      │                        ▼                     │
+                      │ ┌──────────────────────────────────────────┐ │
+                      │ │  Security & Core Infrastructure          │ │
+                      │ │  • Prompt Injection Guardrails & Audits  │ │
+                      │ │  • Redis Rate Limiting / JWT Auth + RBAC │ │
+                      │ │  • Async Task Delegation via Celery      │ │
+                      │ └──────────────────────────────────────────┘ │
+                      └───────────────────────┬──────────────────────┘
+                                              │
+                                              ▼
+                      ┌──────────────────────────────────────────────┐
+                      │          Gradio Frontend Interface           │
+                      │  • 16 Integrated Operator Control Tabs       │
+                      │  • Analytics, Real-Time Monitoring & Triage  │
+                      └──────────────────────────────────────────────┘
 
+```
 
 ## 🗂️ Project Structure
 
